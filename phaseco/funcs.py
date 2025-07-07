@@ -67,7 +67,6 @@ def get_stft(
     if nfft < tau:
         raise ValueError(f"nfft={nfft} < tau={tau}, should be >=")
 
-    
     # Calculate the seg_start_indices
 
     # First, get the last index of the waveform
@@ -147,7 +146,7 @@ def get_stft(
     # get ffts
     for k in range(N_segs):
         stft[k, :] = rfft(segmented_wf[k, :])
-    
+
     # Finally, get time array from seg_start_indices (center of each seg)
     t = (np.array(seg_start_indices) + tau // 2) / fs
 
@@ -175,7 +174,7 @@ def get_coherence(
     wf,
     fs,
     xi,
-    pw, 
+    pw,
     tau,
     nfft=None,
     hop=None,
@@ -240,21 +239,32 @@ def get_coherence(
     if ref_type == "next_seg":
         # First, check if we can get away with a single STFT; this only works if each xi is an integer number of segment hops away
         xi_nsegs = round(xi / hop)
-        if np.abs(xi_nsegs - (xi / hop)) < 1e-12:
+        # Check if xi / hop is an integer
+        non_int_part = np.abs(xi_nsegs - (xi / hop))
+        if non_int_part < 1e-12:
+            # print("TURBO BOOSTING")
             # Yes we can! Calculate this single stft:
-            N_segs = N_pd + xi_nsegs
-            t, f, stft = get_stft(wf=wf, fs=fs, tau=tau, nfft=nfft, hop=hop, win=win, N_segs=N_segs)
+            N_segs = N_pd + xi_nsegs if N_pd is not None else None
+            t, f, stft = get_stft(
+                wf=wf, fs=fs, tau=tau, nfft=nfft, hop=hop, win=win, N_segs=N_segs
+            )
+
+            # Get some lengths
+            if N_segs is None:
+                N_segs = stft.shape[0]
+            N_pd = N_segs - xi_nsegs
             N_bins = len(f)
+
             # First, do the pw case
             if pw:
                 xy = np.empty((N_pd, N_bins), dtype=complex)
                 # IMPLEMENT vectorized way to do this?
                 for k in range(N_pd):
-                    xy[k, :] = np.conj(stft[k, :]) * stft[k + xi_nsegs, :]
+                    xy[k, :] = stft[k, :] * np.conj(stft[k + xi_nsegs, :])
                 Pxy = np.mean(xy, 0)
                 powers = stft.real**2 + stft.imag**2
                 # IMPLEMENT quicker way to do this since most of the mean is shared?
-                Pxx = np.mean(powers[0:xi_nsegs], 0)
+                Pxx = np.mean(powers[0:-xi_nsegs], 0)
                 Pyy = np.mean(powers[xi_nsegs:], 0)
                 coherence = (Pxy.real**2 + Pxy.imag**2) / (Pxx * Pyy)
                 avg_pd = np.angle(Pxy)
@@ -273,10 +283,12 @@ def get_coherence(
                 coherence, avg_pd = get_avg_vector(phase_diffs)
         else:
             # In this case, xi is not an integer number of hops away, so we need two stfts each with N_pd segments
-            t, f, stft = get_stft(
+            _, _, stft = get_stft(
                 wf=wf[0:-xi], fs=fs, tau=tau, hop=hop, nfft=nfft, win=win, N_segs=N_pd
             )
-            _, _, stft_xi_adv = get_stft(wf=wf[xi:], fs=fs, tau=tau, hop=hop, nfft=nfft, win=win, N_segs=N_pd)
+            t, f, stft_xi_adv = get_stft(
+                wf=wf[xi:], fs=fs, tau=tau, hop=hop, nfft=nfft, win=win, N_segs=N_pd
+            )
             N_bins = len(f)
             # First, do the pw case
             if pw:
@@ -297,11 +309,16 @@ def get_coherence(
                 phase_diffs = phases_xi_adv - phases  # minus sign <=> conj
                 coherence, avg_pd = get_avg_vector(phase_diffs)
 
-
     # or we can reference it against the phase of the next frequency in the same window:
     elif ref_type == "next_freq":
         # get phases and initialize array for phase diffs
-        t, f, stft = get_stft(wf=wf, fs=fs, tau=tau, hop=hop, nfft=nfft, win=win, N_segs=N_segs)
+        t, f, stft = get_stft(
+            wf=wf, fs=fs, tau=tau, hop=hop, nfft=nfft, win=win, N_segs=N_segs
+        )
+        # Calculate N_segs if it wasn't explicitly passed in
+        if N_segs is None:
+            N_segs = stft.shape[0]
+
         phases = np.angle(stft)
         phase_diffs = np.zeros(
             (N_segs, N_bins - freq_bin_hop)
@@ -329,7 +346,9 @@ def get_coherence(
     # or we can reference it against the phase of both the lower and higher frequencies in the same window
     elif ref_type == "both_freqs":
         # Get phases
-        t, f, stft = get_stft(wf=wf, fs=fs, tau=tau, hop=hop, win=win, nfft=nfft, N_segs=N_segs)
+        t, f, stft = get_stft(
+            wf=wf, fs=fs, tau=tau, hop=hop, win=win, nfft=nfft, N_segs=N_segs
+        )
         phases = np.angle(stft)
         # initialize arrays
         # even though we only lose ONE freq point with lower and one with higher, we want to get all the points we can get from BOTH so we do - 2
@@ -380,7 +399,7 @@ def get_coherence(
 
         # Add a couple outputs that only sometimes exist
         if not pw:
-            d['phase_diffs'] = phase_diffs
+            d["phase_diffs"] = phase_diffs
 
         if return_avg_abs_pd:
             phase_diffs = (phase_diffs + np.pi) % (2 * np.pi) - np.pi
@@ -542,9 +561,6 @@ def colossogram_coherences(
     coherences : numpy.ndarray
         phase coherences with dimensions (xi, freq)
     """
-    
-
-
 
     # Handle defaults
     if hop is None:
@@ -552,9 +568,8 @@ def colossogram_coherences(
     # Get xis array (function is to handle possible passing in of dict with keys 'xi_min', 'xi_max', and 'delta_xi')
     xis = get_xis_array(xis, fs, hop)
     xi_min = xis[0]
-    xi_max = xis[-1] 
+    xi_max = xis[-1]
     # ...also prints if we can turbo boost all the coherence calculations by only calculating a single STFT since xi is always an integer number of segs away
-
 
     # Get frequency array
     f = np.array(rfftfreq(tau, 1 / fs))
@@ -597,7 +612,6 @@ def colossogram_coherences(
             # This is just as many segments as we possibly can with the current xi reference
             eff_len = len(wf) - xi
             N_pd = int((eff_len - tau) / hop) + 1
-
         coherences[i, :] = get_coherence(
             wf=wf,
             fs=fs,
@@ -672,10 +686,23 @@ def welch(
             d["spectrum"] = spectrum
             d["segmented_spectrum"] = segmented_spectrum
     """
-    # Handle 
-    
+    # Handle
+
     # if nothing was passed into reuse_stft then we need to recalculate it
-    stft_dict = reuse_stft if reuse_stft is not None else get_stft(wf=wf, fs=fs, tau=tau, nfft=nfft, hop=hop, N_segs=N_segs, win=win, return_dict=True)
+    stft_dict = (
+        reuse_stft
+        if reuse_stft is not None
+        else get_stft(
+            wf=wf,
+            fs=fs,
+            tau=tau,
+            nfft=nfft,
+            hop=hop,
+            N_segs=N_segs,
+            win=win,
+            return_dict=True,
+        )
+    )
 
     f = stft_dict["f"]
     stft = stft_dict["stft"]

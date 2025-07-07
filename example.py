@@ -3,16 +3,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
-import os
 "Initialize Plot"
 plt.figure(figsize=(12, 8))
 
 "Generate Waveform - Sinusoid with Brownian Phase Noise"
 
 # --- Parameters ---
-fs = 100          # Sampling rate (Hz), standard for many waveforms (including CDs!)
+fs = 44100          # Sampling rate (Hz), standard for many waveforms (including CDs!)
 T = 5               # Duration (seconds)
-f0 = 20             # Nominal frequency of the sinusoid (Hz)
+f0 = 10000          # Nominal frequency of the sinusoid (Hz)
 A = 1.0             # Amplitude
 phase_noise_strength = 0.01  # Stddev of phase noise increments per sample (radians)
 
@@ -24,11 +23,15 @@ dphi = np.random.normal(0, phase_noise_strength, size=t.shape)
 phi = np.cumsum(dphi)  # Brownian motion (random walk)
 
 # --- Sinusoid with Brownian phase noise ---
-wf = A * np.cos(2 * np.pi * f0 * t) + np.random.normal(0, 1, size=t.shape)
+wf = A * np.cos(2 * np.pi * f0 * t + phi) 
+
+# --- Add some additive noise ---
+additive_noise_strength = 0.1
+wf = wf + np.random.normal(0, additive_noise_strength, size=t.shape)
 
 "Get Welch-averaged power spectral density"
 # --- Parameters ---
-tau = 2**8 # Length of each segment to FFT; power of two for max FFT performance
+tau = 2**13 # Length of each segment to FFT; power of two for max FFT performance
 hop = tau // 2 # How much to hop between adjacent segments; tau // 2 = 50% overlap between segments
 win = 'hann' # Hann window
 scaling = 'density' # Power spectral density scaling
@@ -44,6 +47,7 @@ psd_log = 10*np.log10(psd)
 
 # Plot
 plt.subplot(2, 2, 1)
+plt.title("Power Spectral Density")
 plt.plot(f, psd_log, label='PSD')
 plt.xlabel('Frequency [Hz]')
 plt.ylabel('PSD [dB]')
@@ -58,12 +62,12 @@ pw = True
 # This is equivalent to the classical coherence signal processing measure between the signal and a xi-advanced shifted copy of the signal (e.g. Zhou and Dagle)
 
 # Define the phase reference distance xi
-xi_s = 0.01 # This one I like to define in seconds (that's the _s) and then convert to samples later
+xi_s = 0.1 # This one I like to define in seconds (that's the _s) and then convert to samples later
 
 # Windowing method; see get_win_pc() documentation for details 
 dyn_win_meth = 'rho'
-rho = 0.7
-win_meth = {'method':dyn_win_meth, 'rho':0.7} 
+rho = 1.0
+win_meth = {'method':dyn_win_meth, 'rho':rho} 
 # (note a boxcar AKA rectangular is 'no window')
 
 # Phase reference type
@@ -78,10 +82,11 @@ f, coh = pc.get_coherence(wf, fs, xi, pw, tau, hop=hop, win_meth=win_meth, ref_t
 
 # Plot
 plt.subplot(2, 2, 2)
+plt.title("Coherence Spectrum")
 plt.plot(f, coh, label=rf'Coherence ($\xi={xi_s*1000:.1f}$ms)')
 # Get the frequency bin of interest and mark it
 f0_idx = np.argmin(np.abs(f-f0))
-plt.scatter(f[f0_idx], coh[f0_idx])
+plt.scatter(f[f0_idx], coh[f0_idx], color='red')
 plt.ylim(0, 1)
 plt.ylabel("Coherence")
 plt.legend()
@@ -93,7 +98,7 @@ plt.legend()
 # --- Parameters ---
 xis = {
     'xi_min_s' : 0.01,
-    'xi_max_s' : 0.2,
+    'xi_max_s' : 0.3,
     'delta_xi_s' : 0.01,
 } 
 # the xis parameter can be dict like this to create evenly spaced array from xi_min to xi_max with step delta_xi (can be passed in samples or seconds)
@@ -102,7 +107,8 @@ xis = {
 start = time.time()
 
 # Calculate coherences
-xis_s, f, coherences = pc.colossogram_coherences(wf, fs, xis, pw, tau, hop=round(0.01*fs), win_meth=win_meth)
+print("Calculating Coherences:")
+xis_s, f, coherences = pc.colossogram_coherences(wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth)
 
 stop = time.time()
 

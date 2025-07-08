@@ -98,21 +98,15 @@ plt.legend()
 # --- Parameters ---
 xis = {
     'xi_min_s' : 0.01,
-    'xi_max_s' : 0.3,
-    'delta_xi_s' : 0.01,
+    'xi_max_s' : 0.2,
+    'delta_xi_s' : 0.005,
 } 
 # the xis parameter can be dict like this to create evenly spaced array from xi_min to xi_max with step delta_xi (can be passed in samples or seconds)
 # ...or it can just be the array of desired xi values (in samples)
 
-start = time.time()
-
 # Calculate coherences
 print("Calculating Coherences:")
 xis_s, f, coherences = pc.colossogram_coherences(wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth)
-
-stop = time.time()
-
-print(f"Took {stop-start}s")
 
 # Plot colossogram
 plt.subplot(2, 2, 3)
@@ -121,5 +115,3 @@ plt.suptitle("Sinusoid with Brownian Phase Noise")
 plt.title(rf"Colossogram ($\tau={tau_s:.3f}$s, $\rho={rho}$)")
 plt.tight_layout()
 plt.show()
-
-# wpimath saesay

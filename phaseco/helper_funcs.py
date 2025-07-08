@@ -6,41 +6,6 @@ from scipy.signal import get_window
 HELPER FUNCTIONS
 """
 
-def spectral_filter(wf, fs, cutoff_freq, type="hp"):
-    """Filters waveform by zeroing out frequencies above/below cutoff frequency
-
-    Parameters
-    ------------
-        wf: array
-          waveform input array
-        fs: int
-          sample rate of waveform
-        cutoff_freq: float
-          cutoff frequency for filtering
-        type: str, Optional
-          Either 'hp' for high-pass or 'lp' for low-pass
-    """
-    fft_coefficients = np.fft.rfft(wf)
-    frequencies = np.fft.rfftfreq(len(wf), d=1 / fs)
-
-    if type == "hp":
-        # Zero out coefficients from 0 Hz to cutoff_frequency Hz
-        fft_coefficients[frequencies <= cutoff_freq] = 0
-    elif type == "lp":
-        # Zero out coefficients from cutoff_frequency Hz to Nyquist frequency
-        fft_coefficients[frequencies >= cutoff_freq] = 0
-
-    # Compute the inverse real-valued FFT (irfft)
-    filtered_wf = np.fft.irfft(
-        fft_coefficients, n=len(wf)
-    )  # Ensure output length matches input
-
-    return filtered_wf
-
-def kaiser_filter(wf, cf, df, rip):
-    # IMPLEMENT
-    return wf
-
 def get_xis_array(xis, fs, hop):
         """ Helper function to get a xis array from (possibly) a dictionary of values; returns xis and a boolean value saying whether or not delta_xi is constant
         """
@@ -85,7 +50,7 @@ def get_xis_array(xis, fs, hop):
                 consistent_delta_xi = False
         if consistent_delta_xi and delta_xi == xi_min and xi_min == hop:
           print(
-              f"delta_xi = xi_min = hop (= {hop}), so all xis will be an integer number of segs away, so we can turbo-boost the coherences with a single stft! NICE"
+              f"delta_xi=xi_min=hop={hop}, so each xi is an integer num of segs, so we just need a single stft per xi! NICE"
           )
 
         return xis
@@ -116,14 +81,65 @@ def get_tau_from_eta(tau, xi, eta, win_type):
     """ 
     for test_tau in range(tau):
         win = get_window(win_type, tau)
-        R_w_0 = get_win_autocorr(win, 0)
-        R_w_xi = get_win_autocorr(win, xi)
+        
         
 
-
+def get_expected_spurious_coherence(win, xi):
+    R_w_0 = get_win_autocorr(win, 0)
+    R_w_xi = get_win_autocorr(win, xi)
+    
 
 def get_win_autocorr(win, xi):
     win_0 = win[0:xi]
     win_delayed = win[xi:]
     return np.sum(win_0 * win_delayed)
+
+
+
+def find_max_tau(func, func_params, eta, start, max_tau=None):
+    """
+    Find the largest integer τ ≥ start such that func(τ) < eta.
     
+    Uses exponential search to bracket the threshold and binary search
+    to pinpoint the boundary, minimizing calls to func.
+    
+    Parameters
+    ----------
+    func : callable
+        A monotonic (non-decreasing) function of an integer argument.
+    eta : float
+        Threshold value.
+    start : int
+        Starting integer τ where func(start) < eta is known.
+    max_tau : int, optional
+        Optional upper limit for τ to avoid infinite loops.
+    
+    Returns
+    -------
+    int
+        The largest τ such that func(τ) < eta.
+    """
+    # Ensure start is valid
+    if func(start) >= eta:
+        return start - 1
+
+    # Exponential search for an upper bound
+    low = start
+    high = low + 1
+    while func(high) < eta:
+        low = high
+        high *= 2
+        if max_tau is not None and high >= max_tau:
+            high = max_tau
+            break
+
+    # Binary search between low and high
+    left, right = low, high
+    while left < right:
+        mid = (left + right + 1) // 2
+        if func(mid) < eta:
+            left = mid
+        else:
+            right = mid - 1
+
+    return left

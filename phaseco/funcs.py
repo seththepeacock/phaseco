@@ -606,10 +606,9 @@ def colossogram_coherences(
         raise Exception(
             "Why did you pass a global max xi if you're not holding N_pd constant?"
         )
-    else:
-        global_xi_max = (
-            global_xi_max_s * fs
-        )  # Note we deliberately passed in global_xi_max in secs so it can be consistent across samplerates
+    global_xi_max = (
+        global_xi_max_s * fs
+    )  # Note we deliberately passed in global_xi_max in secs so it can be consistent across samplerates
 
     # Get the number of phase diffs (we can do this outside xi loop since it's constant)
     eff_len_max = len(wf) - xi_min
@@ -729,7 +728,7 @@ def welch(
     assert isinstance(stft_dict, dict) # CTC
     f = stft_dict["f"]
     stft = stft_dict["stft"]
-    win = stft_dict["win"]
+    win = stft_dict["window"]
 
     # calculate necessary params from the stft
     N_segs, N_bins = np.shape(stft)

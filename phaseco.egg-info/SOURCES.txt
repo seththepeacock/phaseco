@@ -1,4 +1,5 @@
-setup.py
+README.md
+pyproject.toml
 phaseco/__init__.py
 phaseco/funcs.py
 phaseco/helper_funcs.py
@@ -6,4 +7,5 @@ phaseco/plots.py
 phaseco.egg-info/PKG-INFO
 phaseco.egg-info/SOURCES.txt
 phaseco.egg-info/dependency_links.txt
+phaseco.egg-info/requires.txt
 phaseco.egg-info/top_level.txt

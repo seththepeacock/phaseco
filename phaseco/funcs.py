@@ -118,9 +118,11 @@ def get_stft(
             window = get_window(win, tau)
         else:
             if len(win) != tau:
-                raise ValueError(f"win={win} is neither a string for SciPy get_window() or a length-tau array of coeffients!")
+                raise ValueError(
+                    f"win={win} is neither a string for SciPy get_window() or a length-tau array of coeffients!"
+                )
             window = win
-            
+
         # Set do_windowing = True unless it's just a boxcar (all 1s)
         do_windowing = np.any(window != 1)
 
@@ -417,7 +419,9 @@ def get_coherence(
         }
 
         # Add a couple outputs that only sometimes exist
-        phase_diffs = 0 # Needed to convince type checker (CTC) it's defined when we need it 
+        phase_diffs = (
+            0  # Needed to convince type checker (CTC) it's defined when we need it
+        )
         if not pw:
             d["phase_diffs"] = phase_diffs
 
@@ -606,9 +610,8 @@ def colossogram_coherences(
         raise Exception(
             "Why did you pass a global max xi if you're not holding N_pd constant?"
         )
-    global_xi_max = (
-        global_xi_max_s * fs
-    )  # Note we deliberately passed in global_xi_max in secs so it can be consistent across samplerates
+    else:  # Note we deliberately passed in global_xi_max in secs so it can be consistent across samplerates
+        global_xi_max = global_xi_max_s * fs
 
     # Get the number of phase diffs (we can do this outside xi loop since it's constant)
     eff_len_max = len(wf) - xi_min
@@ -617,7 +620,7 @@ def colossogram_coherences(
     # There are int((eff_len-tau)/hop)+1 full tau-segments with a xi reference
     N_pd_min = int((eff_len_min - tau) / hop) + 1
     N_pd_max = int((eff_len_max - tau) / hop) + 1
-    N_pd = None # CTC
+    N_pd = None  # CTC
 
     if const_N_pd:
         # If we're holding it constant, we hold it to the minimum
@@ -644,7 +647,7 @@ def colossogram_coherences(
             N_pd=N_pd,
             ref_type=ref_type,
         )
-        assert isinstance(get_coherence_result, tuple) # CTC
+        assert isinstance(get_coherence_result, tuple)  # CTC
         coherences[i, :] = get_coherence_result[1]
 
     # Convert to xis_s
@@ -725,7 +728,7 @@ def welch(
             return_dict=True,
         )
     )
-    assert isinstance(stft_dict, dict) # CTC
+    assert isinstance(stft_dict, dict)  # CTC
     f = stft_dict["f"]
     stft = stft_dict["stft"]
     win = stft_dict["window"]

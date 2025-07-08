@@ -62,13 +62,12 @@ pw = True
 # This is equivalent to the classical coherence signal processing measure between the signal and a xi-advanced shifted copy of the signal (e.g. Zhou and Dagle)
 
 # Define the phase reference distance xi
-xi_s = 0.1 # This one I like to define in seconds (that's the _s) and then convert to samples later
+xi_s = 0.01 # This one I like to define in seconds (that's the _s) and then convert to samples later
 
 # Windowing method; see get_win_pc() documentation for details 
 dyn_win_meth = 'rho'
-rho = 1.0
+rho = 0.7
 win_meth = {'method':dyn_win_meth, 'rho':rho} 
-# (note a boxcar AKA rectangular is 'no window')
 
 # Phase reference type
 ref_type = 'next_seg' # This means we reference the phase to the next segment AKA C_xi

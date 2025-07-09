@@ -650,8 +650,10 @@ def get_colossogram(
         assert isinstance(get_coherence_result, tuple)  # CTC
         colossogram[i, :] = get_coherence_result[1]
 
-    # Convert to xis_s
+    # Convert to seconds to add to dict
     xis_s = xis / fs
+    hop_s = hop / fs
+    tau_s = tau / fs
 
     if return_dict:
         return {
@@ -660,10 +662,12 @@ def get_colossogram(
             "f": f,
             "colossogram": colossogram,
             "tau": tau,
+            "tau_s": tau_s,
             "fs": fs,
             "N_pd_min": N_pd_min,
             "N_pd_max": N_pd_max,
             "hop": hop,
+            "hop_s": hop_s,
             "win_meth": win_meth,
             "global_xi_max": global_xi_max,
         }

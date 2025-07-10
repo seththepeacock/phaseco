@@ -3,10 +3,10 @@ from typing import Union, Tuple, Optional
 from numpy.typing import NDArray
 from numpy import floating, complexfloating
 from phaseco.helper_funcs import *
-from scipy.signal import get_window
+from scipy.signal import get_window, find_peaks
 from scipy.fft import rfft, rfftfreq, fftshift
+from scipy.optimize import curve_fit
 from tqdm import tqdm
-import phaseco as pc
 
 
 """
@@ -778,3 +778,151 @@ def get_welch(
         return {"f": f, "spectrum": spectrum, "segmented_spectrum": segmented_spectrum}
     else:
         return f, spectrum
+def get_N_xi(xis_s, f, colossogram, f0, decay_start_limit_xi_s=None, sigma_power=0, start_peak_prominence=0.01, A0=1, T0=0.5, A_max=np.inf, noise_floor_bw_factor=1):
+    # Handle default; if none is passed, we'll assume the decay start is within the first 25% of the xis array
+    if decay_start_limit_xi_s is None:
+        decay_start_limit_xi_s = xis_s[len(xis_s) // 4]
+    f0_idx = np.argmin(
+        np.abs(f - f0)
+    )  # Get index corresponding to your desired f0 estimate
+    f0_exact = f[f0_idx]  # Get true f0 target frequency bin center
+    colossogram_slice = colossogram[:, f0_idx]  # Get colossogram slice
+    # Calculate sigma weights in fits; bigger sigma = less sure about this point
+    # So sigma_power <= -1 means weight the low coherence bins less and focus on the initial decay more
+    sigma = None if sigma_power == 0 else colossogram_slice**sigma_power
+
+    # Calculate noise floor and when we've dipped below it
+    is_noise, noise_means, noise_stds = get_is_noise(
+        colossogram,
+        colossogram_slice,
+        noise_floor_bw_factor=noise_floor_bw_factor,
+    )
+
+    # Find where to start the fit as the latest peak in the range defined by xi=[0, decay_start_max_xi]
+    decay_start_max_xi_idx = np.argmin(np.abs(xis_s - decay_start_limit_xi_s))
+    maxima = find_peaks(colossogram_slice[:decay_start_max_xi_idx], prominence=start_peak_prominence)[0]
+    num_maxima = len(maxima)
+    match num_maxima:
+        case 1:
+            print(
+                f"One peak found in first {decay_start_limit_xi_s*1000:.0f}ms of xi, starting fit here"
+            )
+            decay_start_idx = maxima[0]
+        case 2:
+            print(
+                f"Two peaks found in first {decay_start_limit_xi_s*1000:.0f}ms of xi, starting fit at second one!"
+            )
+            decay_start_idx = maxima[1]
+        case 0:
+            print(
+                f"No peaks found in first {decay_start_limit_xi_s*1000:.0f}ms of xi, starting fit at first xi!"
+            )
+            decay_start_idx = 0
+        case _:
+            print(
+                f"Three or more peaks found in first {decay_start_limit_xi_s*1000:.0f}ms of xi, starting fit at last one!"
+            )
+            decay_start_idx = maxima[-1]
+
+    # Find first time there is a dip below the noise floor
+    decayed_idx = np.argmax(is_noise[decay_start_idx:]) # Returns index of the first maximum in the array e.g. the first 1
+    # If there are no 1s in the array -- aka EVERYTHING is noise -- it just returns 0
+    if decayed_idx == 0:
+        print(f"Signal at {f0_exact:.0f}Hz never decays!")
+        # In this case, we want to fit out to the very end
+        decayed_idx = -1 
+    
+    decayed_idx = decayed_idx + decay_start_idx # account for the fact that our is_noise array was (temporarily) cropped
+
+    # Curve Fit
+    print(
+        f"Fitting exp decay to {f0_exact:.0f}Hz peak"
+    )
+    # Crop arrays to the fit range
+    xis_s_fit_crop = xis_s[decay_start_idx:decayed_idx]
+    cgram_slice_fit_crop = colossogram_slice[decay_start_idx:decayed_idx]
+    # Initialize fitting vars
+    failures = 0
+    popt = None
+    trim_step = 1
+    # Set initial guesses and bounds
+    p0 = [T0, A0]
+    bounds = ([0, 0], [np.inf, A_max])
+
+    while len(xis_s_fit_crop) > trim_step and popt is None:
+        try:
+            popt, pcov = curve_fit(
+                exp_decay,
+                xis_s_fit_crop,
+                cgram_slice_fit_crop,
+                p0=p0,
+                sigma=sigma,
+                bounds=bounds,
+            )
+            break  # Fit succeeded!
+        except (RuntimeError, ValueError) as e:
+            # Trim the x, y,
+            failures += 1
+            xis_s_fit_crop = xis_s_fit_crop[trim_step:-trim_step]
+            cgram_slice_fit_crop = cgram_slice_fit_crop[trim_step:-trim_step]
+            sigma = sigma[trim_step:-trim_step]
+
+            print(
+                f"Fit failed (attempt {failures}): — trimmed to {len(xis_s_fit_crop)} points"
+            )
+
+    # HAndle case where curve fit fails
+    if popt is None:
+        print(f"Curve fit failed after all attempts ({f0_exact:.0f}Hz)")
+        T, T_std, A, A_std, mse, xis_s_fit_crop, fitted_exp_decay = (
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+        )
+        # raise RuntimeError(f"Curve fit failed after all attempts ({freq:.0f}Hz from {wf_fn})")
+    else:
+        # If successful, get the paramters and standard deviation
+        perr = np.sqrt(np.diag(pcov))
+        T = popt[0]
+        T_std = perr[0]
+        A = popt[1]
+        A_std = perr[1]
+        # Get the fitted exponential decay
+        fitted_exp_decay = exp_decay(xis_s_fit_crop, *popt)
+
+        # Calculate MSE
+        mse = np.mean((fitted_exp_decay - cgram_slice_fit_crop) ** 2)
+    
+    # Calculate xis in num cycles
+    xis_num_cycles = xis_s * f0_exact
+    N_xi = T * f0_exact
+    N_xi_std = T_std * f0_exact
+    xis_num_cycles_fit_crop = xis_s_fit_crop * f0_exact
+
+    return N_xi, {
+        "f": f,
+        "f0_exact": f0_exact,
+        "colossogram_slice": colossogram_slice,
+        "N_xi": N_xi,
+        "N_xi_std": N_xi_std,
+        "T": T,
+        "T_std": T_std,
+        "A": A,
+        "A_std": A_std,
+        "mse": mse,
+        "is_noise": is_noise,
+        "decay_start_idx": decay_start_idx,
+        "decayed_idx": decayed_idx,
+        "xis_s": xis_s,
+        "xis_s_fit_crop": xis_s_fit_crop,
+        "xis_num_cycles_fit_crop": xis_num_cycles_fit_crop,
+        "xis_num_cycles": xis_num_cycles,
+        "fitted_exp_decay": fitted_exp_decay,
+        "noise_means": noise_means,
+        "noise_stds": noise_stds,
+        'noise_floor_bw_factor':noise_floor_bw_factor,
+    }

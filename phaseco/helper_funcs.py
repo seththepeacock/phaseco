@@ -143,3 +143,21 @@ def find_max_tau(func, func_params, eta, start, max_tau=None):
             right = mid - 1
 
     return left
+
+
+def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
+
+    # Get mean and std dev of coherence (over frequency axis, axis=1) for each xi value (using ALL frequencies)
+    noise_means = np.mean(colossogram, axis=1)
+    noise_stds = np.std(
+        colossogram, axis=1, ddof=1
+    )  # ddof=1 since we're using sample mean (not true mean) in sample std estimate
+    # Now for each xi value, see if it's noise by determining if it's less than noise_floor_bw_factor*sigma away from the mean
+    noise_floor = noise_means + noise_floor_bw_factor * noise_stds
+    is_noise = colossogram_slice <= noise_floor
+
+    return is_noise, noise_means, noise_stds
+
+
+def exp_decay(x, T, amp):
+    return amp * np.exp(-x / T)

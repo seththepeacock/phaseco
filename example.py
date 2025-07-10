@@ -10,7 +10,7 @@ plt.figure(figsize=(12, 8))
 
 # --- Parameters ---
 fs = 44100          # Sampling rate (Hz), standard for many waveforms (including CDs!)
-T = 5               # Duration (seconds)
+T = 60               # Duration (seconds)
 f0 = 10000          # Nominal frequency of the sinusoid (Hz)
 A = 1.0             # Amplitude
 phase_noise_strength = 0.01  # Stddev of phase noise increments per sample (radians)
@@ -98,8 +98,8 @@ plt.legend()
 # --- Parameters ---
 xis = {
     'xi_min_s' : 0.01,
-    'xi_max_s' : 0.2,
-    'delta_xi_s' : 0.005,
+    'xi_max_s' : 1.0,
+    'delta_xi_s' : 0.01,
 } 
 # the xis parameter can be dict like this to create evenly spaced array from xi_min to xi_max with step delta_xi (can be passed in samples or seconds)
 # ...or it can just be the array of desired xi values (in samples)
@@ -111,7 +111,17 @@ xis_s, f, colossogram = pc.get_colossogram(wf, fs, xis, pw, tau, hop=hop, win_me
 # Plot colossogram
 plt.subplot(2, 2, 3)
 pc.plot_colossogram(xis_s, f, colossogram)
-plt.suptitle("Sinusoid with Brownian Phase Noise")
+plt.ylim(8, 12)
 plt.title(rf"Colossogram ($\tau={tau_s:.3f}$s, $\rho={rho}$)")
+
+# Extract N_xi
+N_xi, fit_dict = pc.get_N_xi(xis_s, f, colossogram, f0)
+
+plt.subplot(2, 2, 4)
+pc.plot_N_xi_fit(fit_dict)
+
+
+# Wrap it up
+plt.suptitle("Sinusoid with Brownian Phase Noise")
 plt.tight_layout()
 plt.show()

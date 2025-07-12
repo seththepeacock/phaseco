@@ -38,7 +38,7 @@ def plot_colossogram(xis_s, f, colossogram, title=None, max_khz=None, cmap="magm
     plt.title(title)
 
 
-def plot_N_xi_fit(N_xi_dict, color='#126290', xaxis_units='#cycles', noise_bin=None, colossogram=None):
+def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='#cycles', noise_bin=None, colossogram=None):
     # Unpack dict
     f                      = N_xi_dict["f"]
     f0_exact               = N_xi_dict["f0_exact"]
@@ -88,8 +88,9 @@ def plot_N_xi_fit(N_xi_dict, color='#126290', xaxis_units='#cycles', noise_bin=N
         x_fit_crop = xis_num_cycles_fit_crop
         xlabel = r"# Cycles"
     elif xaxis_units == 'sec':
-        x = xis_s
-        x_fit_crop = xis_s_fit_crop
+        x = xis_s*1000
+        x_fit_crop = xis_s_fit_crop*1000
+        xlabel = r"$\xi$ [ms]"
     else:
         raise ValueError(f"{xaxis_units} isn't a valid option, choose '#cycles' or 'sec'!")
 
@@ -143,7 +144,7 @@ def plot_N_xi_fit(N_xi_dict, color='#126290', xaxis_units='#cycles', noise_bin=N
         colossogram_slice[decayed_idx],
         s=s_decayed,
         marker=marker_decayed,
-        color=color,
+        color="#7E9BF9",
         edgecolors=edgecolor_decayed,
         zorder=3,
     )
@@ -176,7 +177,7 @@ def plot_N_xi_fit(N_xi_dict, color='#126290', xaxis_units='#cycles', noise_bin=N
             xis_num_cycles,
             colossogram[noise_bin_exact, :],
             label=f"Noise Bin ({noise_bin_exact/1000:.0f}kHz)",
-            color="#e377c2",
+            color='#126290',
         )
 
     # Finish plot

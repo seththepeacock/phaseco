@@ -649,11 +649,19 @@ def get_colossogram(
         )
         assert isinstance(get_coherence_result, tuple)  # CTC
         colossogram[i, :] = get_coherence_result[1]
+    
+    
 
-    # Convert to seconds to add to dict
+    # Do some conversions for dictionary
     xis_s = xis / fs
     hop_s = hop / fs
     tau_s = tau / fs
+
+    # Calculate method id for plots
+    N_pd_str = get_N_pd_str(const_N_pd, N_pd_min, N_pd_max)
+    win_meth_str = get_win_meth_str(win_meth)
+    method_id = rf'[{win_meth_str}]   [$\tau$={tau_s*1000:.2f}ms]   [$\xi_{{\text{{max}}}}={xis_s[-1]*1000:.0f}$ms]   [Hop={(hop_s)*1000:.0f}ms]   [{N_pd_str}]'
+    
 
     if return_dict:
         return {
@@ -670,6 +678,7 @@ def get_colossogram(
             "hop_s": hop_s,
             "win_meth": win_meth,
             "global_xi_max": global_xi_max,
+            "method_id":method_id,
         }
     else:
         return xis_s, f, colossogram
@@ -924,5 +933,5 @@ def get_N_xi(xis_s, f, colossogram, f0, decay_start_limit_xi_s=None, sigma_power
         "fitted_exp_decay": fitted_exp_decay,
         "noise_means": noise_means,
         "noise_stds": noise_stds,
-        'noise_floor_bw_factor':noise_floor_bw_factor,
+        'noise_floor_bw_factor':noise_floor_bw_factor
     }

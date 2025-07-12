@@ -73,30 +73,75 @@ def get_avg_vector(phase_diffs):
     return vec_strength, np.angle(avg_vector)
 
 
-def get_tau_from_eta(tau, xi, eta, win_type):
-    """Returns the minimum tau such that the expected coherence for white noise for this window is less than eta
+def get_tau_from_eta(tau_max, xi, eta, win_type):
+    """Returns the max tau such that the expected coherence for white noise for this window / reference distance xi is less than eta
+
+    Parameters
+    ------------
+        tau_max: int
+            the tau for the colossogram run, setting the maximum tau we would ever even want to use
+        xi: int
+            the xi for the colossogram run, setting the minimum tau we would ever have to use (since tau=xi is zero shared samples)
+        eta: float
+            maximum allowed expected spurious coherence for a white noise signal
+        win_type: str
+            used in scipy.signal.get_window()
+    """ 
+    tau_low = xi # we definitely don't have to go any lower than xi, since tau=xi aways has 0 expected coherence!
+
+    # TEST
+    if get_exp_spur_coh(tau_low, xi, win_type) >= eta:
+        raise ValueError("HUH")
+    print(f"Initializing binary search")
+    print(f"Lower bound is xi={tau_low}")
+    print(f"Searching for upper bound")
+    # Exponential search for an upper bound
+    tau_high = tau_low + 1
+    print(f"Testing {tau_high}:")
+    while get_exp_spur_coh(tau_high, xi, win_type) < eta:
+        tau_low = tau_high
+        tau_high *= 2
+        print(f"Tested {tau_low}, we can go bigger/more overlap!")
+        print(f"Testing {tau_high}:")
+        if tau_max is not None and tau_high >= tau_max:
+            tau_high = tau_max
+            print(f"Found upper bound: {tau_high}")
+            break
+
+    # Binary search between low and high
+    left, right = tau_low, tau_high
+    while left < right:
+        mid = (left + right + 1) // 2
+        if get_exp_spur_coh(mid, xi, win_type) < eta:
+            left = mid
+        else:
+            right = mid - 1
+
+    return left
+    
+        
+        
+
+def get_exp_spur_coh(tau, xi, win_type):
+    """Returns the expected spurious coherence for this window at this xi value
 
     Parameters
     ------------
     """ 
-    for test_tau in range(tau):
-        win = get_window(win_type, tau)
-        
-        
-
-def get_expected_spurious_coherence(win, xi):
+    win = get_window(tau, win_type)
     R_w_0 = get_win_autocorr(win, 0)
     R_w_xi = get_win_autocorr(win, xi)
+    return (R_w_xi / R_w_0)**2
     
 
 def get_win_autocorr(win, xi):
-    win_0 = win[0:xi]
-    win_delayed = win[xi:]
-    return np.sum(win_0 * win_delayed)
+    win_0 = win[0:-xi]
+    win_adv = win[xi:]
+    return np.sum(win_0 * win_adv)
 
 
 
-def find_max_tau(func, func_params, eta, start, max_tau=None):
+def find_tau_max(func, func_params, eta, start, tau_max=None):
     """
     Find the largest integer τ ≥ start such that func(τ) < eta.
     
@@ -111,7 +156,7 @@ def find_max_tau(func, func_params, eta, start, max_tau=None):
         Threshold value.
     start : int
         Starting integer τ where func(start) < eta is known.
-    max_tau : int, optional
+    tau_max : int, optional
         Optional upper limit for τ to avoid infinite loops.
     
     Returns
@@ -119,30 +164,7 @@ def find_max_tau(func, func_params, eta, start, max_tau=None):
     int
         The largest τ such that func(τ) < eta.
     """
-    # Ensure start is valid
-    if func(start) >= eta:
-        return start - 1
-
-    # Exponential search for an upper bound
-    low = start
-    high = low + 1
-    while func(high) < eta:
-        low = high
-        high *= 2
-        if max_tau is not None and high >= max_tau:
-            high = max_tau
-            break
-
-    # Binary search between low and high
-    left, right = low, high
-    while left < right:
-        mid = (left + right + 1) // 2
-        if func(mid) < eta:
-            left = mid
-        else:
-            right = mid - 1
-
-    return left
+    
 
 
 def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
@@ -161,3 +183,33 @@ def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
 
 def exp_decay(x, T, amp):
     return amp * np.exp(-x / T)
+
+def get_win_meth_str(win_meth):
+    match win_meth["method"]:
+        case "rho":
+            rho = win_meth["rho"]
+            try:
+                snapping_rhortle = win_meth["snapping_rhortle"]
+                win_meth_str = rf"$\rho={rho}$, SR={snapping_rhortle}"
+            except:
+                win_meth_str = rf"$\rho={rho}$"
+        case "eta":
+            eta = win_meth["eta"]
+            win_type = win_meth["win_type"]
+            win_meth_str = rf"$\eta={eta}$, {win_type.capitalize()}"
+        case "static":
+            win_type = win_meth["win_type"]
+            win_meth_str = rf"Static {win_type.capitalize()}"
+    
+    return win_meth_str
+
+def get_N_pd_str(const_N_pd, N_pd_min, N_pd_max):
+    if const_N_pd:
+        if N_pd_min != N_pd_max:
+            raise Exception(
+                "If N_pd is constant, then N_pd_min and N_pd_max should be equal..."
+            )
+        N_pd_str = rf"$N_{{pd}}={N_pd_min}$"
+    else:
+        N_pd_str = rf"$N_{{pd}} \in [{N_pd_min}, {N_pd_max}]$"
+    return N_pd_str

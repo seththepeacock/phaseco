@@ -223,7 +223,7 @@ def get_autocoherence(
     hop: int
         length between the start of successive segments, used in get_stft()
     win_meth: dict, optional
-        windowing method dictionary; see get_pc_win() for details
+        windowing method dictionary; see get_pc_win() for dzetails
     N_pd: int, optional
         number of phase differences in vector strength, converted to N_segs for get_stft()
     ref_type: str, optional
@@ -248,11 +248,11 @@ def get_autocoherence(
         hop = tau  # Zero overlap (at least, outside of xi referencing considerations)
     if nfft is None:
         nfft = (
-            tau  # No zero padding (at least, outside of eta windowing considerations)
+            tau  # No zero padding (at least, outside of zeta windowing considerations)
         )
 
-    # Get window (and possibly redfine tau if doing eta windowing)
-    win, tau = get_win_pc(win_meth, tau, xi, ref_type)
+    # Get window (and possibly redfine tau if doing zeta windowing)
+    win, tau_updated = get_win_pc(win_meth, tau, xi, ref_type)
 
     # we can reference each phase against the phase of the same frequency in the next window:
     if ref_type == "next_seg":
@@ -265,7 +265,7 @@ def get_autocoherence(
             # Yes we can! Calculate this single stft:
             N_segs = N_pd + xi_nsegs if N_pd is not None else None
             t, f, stft = get_stft(
-                wf=wf, fs=fs, tau=tau, nfft=nfft, hop=hop, win=win, N_segs=N_segs
+                wf=wf, fs=fs, tau=tau_updated, nfft=nfft, hop=hop, win=win, N_segs=N_segs
             )
 
             # Get some lengths
@@ -303,10 +303,10 @@ def get_autocoherence(
         else:
             # In this case, xi is not an integer number of hops away, so we need two stfts each with N_pd segments
             _, _, stft = get_stft(
-                wf=wf[0:-xi], fs=fs, tau=tau, hop=hop, nfft=nfft, win=win, N_segs=N_pd
+                wf=wf[0:-xi], fs=fs, tau=tau_updated, hop=hop, nfft=nfft, win=win, N_segs=N_pd
             )
             t, f, stft_xi_adv = get_stft(
-                wf=wf[xi:], fs=fs, tau=tau, hop=hop, nfft=nfft, win=win, N_segs=N_pd
+                wf=wf[xi:], fs=fs, tau=tau_updated, hop=hop, nfft=nfft, win=win, N_segs=N_pd
             )
             N_bins = len(f)
             # First, do the pw case
@@ -332,7 +332,7 @@ def get_autocoherence(
     elif ref_type == "next_freq":
         # get phases and initialize array for phase diffs
         t, f, stft = get_stft(
-            wf=wf, fs=fs, tau=tau, hop=hop, nfft=nfft, win=win, N_segs=N_pd
+            wf=wf, fs=fs, tau=tau_updated, hop=hop, nfft=nfft, win=win, N_segs=N_pd
         )
         # Calculate N_segs and N_bins
         N_segs = stft.shape[0]
@@ -366,7 +366,7 @@ def get_autocoherence(
     elif ref_type == "both_freqs":
         # Get phases
         t, f, stft = get_stft(
-            wf=wf, fs=fs, tau=tau, hop=hop, win=win, nfft=nfft, N_segs=N_pd
+            wf=wf, fs=fs, tau=tau_updated, hop=hop, win=win, nfft=nfft, N_segs=N_pd
         )
         phases = np.angle(stft)
         # Calculate N_segs and N_bins
@@ -411,7 +411,8 @@ def get_autocoherence(
             "t": t,
             "f": f,
             "stft": stft,
-            "tau": tau,
+            "tau": tau_updated,
+            "nfft": nfft,
             "hop": hop,
             "xi": xi,
             "fs": fs,
@@ -451,18 +452,18 @@ def get_win_pc(win_meth, tau, xi, ref_type="next_seg"):
             - `'rho'`: Use a Gaussian window whose full width at half maximum (FWHM) is `rho * xi`.
               Required keys: `'rho'`, `'snapping_rhortle'`
 
-            - `'eta'`: Use a window of type `'win_type'` with a shortened duration `tau`, such that
-              the expected coherence for white noise is ≤ `eta`. Zero-padding is applied up to `tau`
+            - `'zeta'`: Use a window of type `'win_type'` with a shortened duration `tau`, such that
+              the expected coherence for white noise is ≤ `zeta`. Zero-padding is applied up to `tau`
               to maintain the number of frequency bins.
-              Required keys: `'eta'`, `'win_type'`
+              Required keys: `'zeta'`, `'win_type'`
 
         - 'rho' (float, optional): Controls the FWHM of the Gaussian window when `'method' == 'rho'`.
 
-        - 'eta' (float, optional): Maximum allowable spurious coherence due to overlap in the white noise case
-          (used when `'method' == 'eta'`).
+        - 'zeta' (float, optional): Maximum allowable spurious coherence due to overlap in the white noise case
+          (used when `'method' == 'zeta'`).
 
         - 'win_type' (str or tuple, optional): Window type to be passed to `scipy.signal.get_window()`
-          (used in `'static'` and `'eta'` methods).
+          (used in `'static'` and `'zeta'` methods).
 
         - 'snapping_rhortle' (bool, optional): When `True` and `'method' == 'rho'`, switches from a Gaussian
           window to a fixed boxcar for all `xi > tau`. Defaults to `False`.
@@ -479,17 +480,19 @@ def get_win_pc(win_meth, tau, xi, ref_type="next_seg"):
     win : numpy.ndarray
         array of window coefficients
     tau : int
-        length of window array in samples (possibly altered from input tau only when using eta windowing)
+        length of window array in samples (possibly altered from input tau only when using zeta windowing)
     """
 
-    if "method" not in win_meth.keys():
+    try:
+        method = win_meth["method"]
+    except:
         raise ValueError(
-            "the 'win_meth' dictionary must contain a 'method' key! See get_win_pc() documentation for details."
+            "the 'win_meth' dictionary must contain a 'method' key! See get_win_pc() documentation for dzetails."
         )
-    method = win_meth["method"]
+
 
     # First, handle dynamic windows
-    if method in ["rho", "eta"]:
+    if method in ["rho", "zeta"]:
         # Make sure our ref_type is appropriate
         if ref_type != "next_seg":
             raise ValueError(
@@ -497,7 +500,13 @@ def get_win_pc(win_meth, tau, xi, ref_type="next_seg"):
             )
 
         if method == "rho":
-            rho = win_meth["rho"]
+            try:
+                rho = win_meth["rho"]
+            except:
+                raise ValueError(
+                    f"win meth dictionary must have key 'rho' if doing rho windowing!)"
+                )
+
             snapping_rhortle = (
                 win_meth["snapping_rhortle"]
                 if "snapping_rhortle" in win_meth.keys()
@@ -509,26 +518,28 @@ def get_win_pc(win_meth, tau, xi, ref_type="next_seg"):
                 desired_fwhm = rho * xi
                 sigma = desired_fwhm / (2 * np.sqrt(2 * np.log(2)))
                 win = get_window(("gaussian", sigma), tau)
-
-        else:
-            # here, method == 'eta'
-            raise RuntimeError("Haven't implemented eta dynamic windowing yet!")
-            eta = win_meth["eta"]
-            win_type = win_meth["win_type"]
-            tau = get_tau_from_eta(tau, xi, eta, win_type)
+            tau_updated = tau # Doesn't change
+        else:  # here, method == 'zeta' necessarily
+            try:
+                zeta = win_meth["zeta"]
+                win_type = win_meth["win_type"]
+            except:
+                raise ValueError(
+                    rf"win_meth dictionary must have keys 'zeta' and 'win_type' if doing zeta windowing!)"
+                )
+            tau_updated = get_tau_zeta(tau_min=xi, tau_max=tau, xi=xi, zeta=zeta, win_type=win_type)
+            win = get_window(win_type, tau_updated)
 
     elif method == "static":
         win_type = win_meth["win_type"]
         win = get_window(win_type, tau)
+        tau_updated = tau # Doesn't change
     else:
         raise ValueError(
-            f"method={method} is not a valid windowing method; see get_win_pc() documentation for details."
+            f"win_meth['method']={method} is not a valid windowing method; see get_win_pc() documentation for dzetails."
         )
-
-    return (
-        win,
-        tau,
-    )  # Note that unless explicitly changed via eta windowing, tau just passes through
+    return win, tau_updated
+    # Note that unless explicitly changed via zeta windowing, tau just passes through
 
 
 def get_colossogram(
@@ -566,7 +577,7 @@ def get_colossogram(
     hop: int
         length between the start of successive segments, used in get_stft(); defaults to tau // 2
     win_meth: dict, optional
-        windowing method dictionary; see get_pc_win() for details
+        windowing method dictionary; see get_pc_win() for dzetails
     const_N_pd: bool, optional
         holds the number of phase differences fixed at the minimum N_pd able to be calculated across all xi (e.g. it's set by the maximum xi in the xis array)
     global_xi_max: int, optional
@@ -628,41 +639,78 @@ def get_colossogram(
         # Even though the *potential* N_pd_max is bigger, we just use N_pd_min all the way so this is also the max
         N_pd_max = N_pd_min  # This way we can return both a min and a max regardless, even if they are equal
 
-    # Loop through xis and calculate colossogram
-    for i, xi in enumerate(tqdm(xis)):
-        # Calculate N_pd (assuming we're not holding it constant, in which case it was already done outside of loop)
-        if not const_N_pd:
-            # This is just as many segments as we possibly can with the current xi reference
-            eff_len = len(wf) - xi
-            N_pd = int((eff_len - tau) / hop) + 1
-        get_coherence_result = get_autocoherence(
-            wf=wf,
-            fs=fs,
-            tau=tau,
-            pw=pw,
-            xi=xi,
-            nfft=nfft,
-            hop=hop,
-            win_meth=win_meth,
-            N_pd=N_pd,
-            ref_type=ref_type,
-        )
-        assert isinstance(get_coherence_result, tuple)  # CTC
-        colossogram[i, :] = get_coherence_result[1]
     
-    
-
-    # Do some conversions for dictionary
+    # Do some conversions for output dictionary / strings
     xis_s = xis / fs
     hop_s = hop / fs
     tau_s = tau / fs
-
+    
     # Calculate method id for plots
     N_pd_str = get_N_pd_str(const_N_pd, N_pd_min, N_pd_max)
-    win_meth_str = get_win_meth_str(win_meth)
-    method_id = rf'[{win_meth_str}]   [$\tau$={tau_s*1000:.2f}ms]   [$\xi_{{\text{{max}}}}={xis_s[-1]*1000:.0f}$ms]   [Hop={(hop_s)*1000:.0f}ms]   [{N_pd_str}]'
-    
+    win_meth_str = get_win_meth_str(win_meth, latex=True) # This will also check that our win_meth was passed correctly
+    method_id = rf"[{win_meth_str}]   [$\tau$={tau_s*1000:.2f}ms]   [$\xi_{{\text{{max}}}}={xis_s[-1]*1000:.0f}$ms]   [Hop={(hop_s)*1000:.0f}ms]   [{N_pd_str}]"
 
+    # Loop through xis and calculate colossogram
+
+    # First handle zeta windowing case
+    if win_meth['method'] == 'zeta': 
+        # In this case, we'll calculate the windows all at once since it's more efficient that way
+        og_tau = tau # redefine this for clarity since we'll be changing tau from xi to xi
+        zeta = win_meth['zeta'] # Note win_meth must have these keys because get_win_meth_str went through
+        win_type = win_meth['win_type'] 
+        # Calculate all tau_zetas at once
+        tau_zetas = get_tau_zetas(tau_max=tau, xis=xis, zeta=zeta, win_type=win_type)
+        # Define win_meth dict; zeta windowing is just a window of constant where the number of samples per segment (tau_zeta) changes with xi
+        static_win_meth = {'method':'static', 'win_type':win_type}
+        for i, xi in enumerate(tqdm(xis)):
+            # Get current tau and win meth for this xi
+            current_tau_zeta = tau_zetas[i]
+            
+            # Calculate N_pd (assuming we're not holding it constant, in which case it was already done outside of loop)
+            if not const_N_pd:
+                # This is just as many segments as we possibly can with the current xi reference AND the current tau_zeta
+                eff_len = len(wf) - xi
+                N_pd = int((eff_len - current_tau_zeta) / hop) + 1
+            
+            get_autocoherence_result = get_autocoherence(
+                wf=wf,
+                fs=fs,
+                tau=current_tau_zeta, # Pass in current tau_zeta
+                pw=pw,
+                xi=xi,
+                nfft=og_tau, # Will do zero padding to get up to og tau
+                hop=hop,
+                win_meth=static_win_meth, # Tells it to get a window of the specified type with length current_tau_zeta
+                N_pd=N_pd,
+                ref_type=ref_type,
+            )
+
+            assert isinstance(get_autocoherence_result, tuple)  # CTC
+            colossogram[i, :] = get_autocoherence_result[1]
+    else:
+        for i, xi in enumerate(tqdm(xis)):
+            # Calculate N_pd (assuming we're not holding it constant, in which case it was already done outside of loop)
+            if not const_N_pd:
+                # This is just as many segments as we possibly can with the current xi reference
+                eff_len = len(wf) - xi
+                N_pd = int((eff_len - tau) / hop) + 1
+            get_autocoherence_result = get_autocoherence(
+                wf=wf,
+                fs=fs,
+                tau=tau,
+                pw=pw,
+                xi=xi,
+                nfft=nfft,
+                hop=hop,
+                win_meth=win_meth,
+                N_pd=N_pd,
+                ref_type=ref_type,
+            )
+
+            assert isinstance(get_autocoherence_result, tuple)  # CTC
+            colossogram[i, :] = get_autocoherence_result[1]
+
+    
     if return_dict:
         return {
             "xis": xis,
@@ -678,7 +726,7 @@ def get_colossogram(
             "hop_s": hop_s,
             "win_meth": win_meth,
             "global_xi_max": global_xi_max,
-            "method_id":method_id,
+            "method_id": method_id,
         }
     else:
         return xis_s, f, colossogram
@@ -787,7 +835,21 @@ def get_welch(
         return {"f": f, "spectrum": spectrum, "segmented_spectrum": segmented_spectrum}
     else:
         return f, spectrum
-def get_N_xi(xis_s, f, colossogram, f0, decay_start_limit_xi_s=None, sigma_power=0, start_peak_prominence=0.01, A0=1, T0=0.5, A_max=np.inf, noise_floor_bw_factor=1):
+
+
+def get_N_xi(
+    xis_s,
+    f,
+    colossogram,
+    f0,
+    decay_start_limit_xi_s=None,
+    sigma_power=0,
+    start_peak_prominence=0.01,
+    A0=1,
+    T0=0.5,
+    A_max=np.inf,
+    noise_floor_bw_factor=1,
+):
     # Handle default; if none is passed, we'll assume the decay start is within the first 25% of the xis array
     if decay_start_limit_xi_s is None:
         decay_start_limit_xi_s = xis_s[len(xis_s) // 4]
@@ -809,7 +871,9 @@ def get_N_xi(xis_s, f, colossogram, f0, decay_start_limit_xi_s=None, sigma_power
 
     # Find where to start the fit as the latest peak in the range defined by xi=[0, decay_start_max_xi]
     decay_start_max_xi_idx = np.argmin(np.abs(xis_s - decay_start_limit_xi_s))
-    maxima = find_peaks(colossogram_slice[:decay_start_max_xi_idx], prominence=start_peak_prominence)[0]
+    maxima = find_peaks(
+        colossogram_slice[:decay_start_max_xi_idx], prominence=start_peak_prominence
+    )[0]
     num_maxima = len(maxima)
     match num_maxima:
         case 1:
@@ -834,19 +898,21 @@ def get_N_xi(xis_s, f, colossogram, f0, decay_start_limit_xi_s=None, sigma_power
             decay_start_idx = maxima[-1]
 
     # Find first time there is a dip below the noise floor
-    decayed_idx = np.argmax(is_noise[decay_start_idx:]) # Returns index of the first maximum in the array e.g. the first 1
+    decayed_idx = np.argmax(
+        is_noise[decay_start_idx:]
+    )  # Returns index of the first maximum in the array e.g. the first 1
     # If there are no 1s in the array -- aka EVERYTHING is noise -- it just returns 0
     if decayed_idx == 0:
         print(f"Signal at {f0_exact:.0f}Hz never decays!")
         # In this case, we want to fit out to the very end
-        decayed_idx = -1 
-    
-    decayed_idx = decayed_idx + decay_start_idx # account for the fact that our is_noise array was (temporarily) cropped
+        decayed_idx = -1
+
+    decayed_idx = (
+        decayed_idx + decay_start_idx
+    )  # account for the fact that our is_noise array was (temporarily) cropped
 
     # Curve Fit
-    print(
-        f"Fitting exp decay to {f0_exact:.0f}Hz peak"
-    )
+    print(f"Fitting exp decay to {f0_exact:.0f}Hz peak")
     # Crop arrays to the fit range
     xis_s_fit_crop = xis_s[decay_start_idx:decayed_idx]
     cgram_slice_fit_crop = colossogram_slice[decay_start_idx:decayed_idx]
@@ -905,7 +971,7 @@ def get_N_xi(xis_s, f, colossogram, f0, decay_start_limit_xi_s=None, sigma_power
 
         # Calculate MSE
         mse = np.mean((fitted_exp_decay - cgram_slice_fit_crop) ** 2)
-    
+
     # Calculate xis in num cycles
     xis_num_cycles = xis_s * f0_exact
     N_xi = T * f0_exact
@@ -933,5 +999,5 @@ def get_N_xi(xis_s, f, colossogram, f0, decay_start_limit_xi_s=None, sigma_power
         "fitted_exp_decay": fitted_exp_decay,
         "noise_means": noise_means,
         "noise_stds": noise_stds,
-        'noise_floor_bw_factor':noise_floor_bw_factor
+        "noise_floor_bw_factor": noise_floor_bw_factor,
     }

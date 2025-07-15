@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Union, Tuple, Optional
+from typing import Union, Tuple, Dict, Optional
 from numpy.typing import NDArray
 from numpy import floating, complexfloating
 from phaseco.helper_funcs import *
@@ -16,7 +16,7 @@ PRIMARY USER-FACING FUNCTIONS
 
 def get_stft(
     wf: Union[NDArray[floating], list[float]],
-    fs: float,
+    fs: int,
     tau: int,
     nfft: Optional[int] = None,
     hop: Optional[int] = None,
@@ -30,7 +30,7 @@ def get_stft(
         NDArray[floating],
         NDArray[complexfloating],
     ],
-    dict,
+    Dict[str, Union[NDArray, int]],
 ]:
     """Returns the segmented fft and associated freq ax of the given waveform
 
@@ -180,9 +180,7 @@ def get_stft(
             "hop": hop,
             "fs": fs,
             "tau": tau,
-            "hop": hop,
             "window": window,
-            "fs": fs,
         }
 
     else:
@@ -190,27 +188,30 @@ def get_stft(
 
 
 def get_autocoherence(
-    wf,
-    fs,
-    xi,
-    pw,
-    tau,
-    nfft=None,
-    hop=None,
-    win_meth={"method": "rho", "rho": 0.7},
-    N_pd=None,
-    ref_type="next_seg",
-    freq_bin_hop=1,
-    return_avg_abs_pd=False,
-    return_dict=False,
-):
+    wf: Union[NDArray[floating], list[float]],
+    fs: int,
+    xi: int,
+    pw: bool,
+    tau: int,
+    nfft: Union[int, None] = None,
+    hop: Union[int, None] = None,
+    win_meth: dict = {"method": "rho", "rho": 0.7},
+    N_pd: Union[int, None] = None,
+    ref_type: str = "next_seg",
+    freq_bin_hop: int = 1,
+    return_avg_abs_pd: bool = False,
+    return_dict: bool = False,
+) -> Union[
+    Tuple[NDArray[floating], NDArray[floating]],
+    Dict[str, Union[NDArray, int]],
+]:
     """Gets the phase coherence of the waveform against a copy of the waveform advanced xi samples
 
     Parameters
     ------------
     wf: array
         waveform input array
-    fs: float
+    fs: int
         sample rate of waveform
     xi: int
         length (in samples) to advance copy of signal for phase reference
@@ -234,7 +235,7 @@ def get_autocoherence(
     return_avg_abs_pd: bool, optional
         Calculates <|phase diffs|> and adds to output dictionary
     return_dict: bool, optional
-        Defaults to only returning (f, coherence); if this is enabled, then a dictionary is returned with keys:
+        Defaults to only returning (f, coherence); but if this is enabled, then a dictionary is returned with keys:
         'coherence', 'phase_diffs', 'avg_pd', 'N_pd', 'N_segs', 'f', 'stft', 'tau', 'hop', 'xi', 'fs', 'pw', 'avg_abs_pd'
     Returns
     -------
@@ -453,7 +454,9 @@ def get_autocoherence(
         return d
 
 
-def get_win_pc(win_meth, tau, xi, ref_type="next_seg"):
+def get_win_pc(
+    win_meth: dict, tau: int, xi: int, ref_type: str = "next_seg"
+) -> Tuple[Union[NDArray[floating], None], int]:
     """
     Gets the window based on the dynamic (or static) windowing method.
 
@@ -563,26 +566,29 @@ def get_win_pc(win_meth, tau, xi, ref_type="next_seg"):
 
 
 def get_colossogram(
-    wf,
-    fs,
-    xis,
-    pw,
-    tau,
-    nfft=None,
-    hop=None,
-    win_meth={"method": "rho", "rho": 0.7},
-    const_N_pd=True,
-    global_xi_max_s=None,
-    ref_type="next_seg",
-    return_dict=False,
-):
+    wf: Union[NDArray[floating], list[float]],
+    fs: int,
+    xis: Union[NDArray[np.integer], dict],
+    pw: bool,
+    tau: int,
+    nfft: Union[int, None] = None,
+    hop: Union[int, None] = None,
+    win_meth: dict = {"method": "zeta", "zeta": 0.01, "win_type": "hann"},
+    const_N_pd: bool = True,
+    global_xi_max_s: Union[float, None] = None,
+    ref_type: str = "next_seg",
+    return_dict: bool = False,
+) -> Union[
+    Tuple[NDArray[floating], NDArray[floating], NDArray[floating]],
+    Dict[str, Union[NDArray, dict, str]],
+]:
     """Gets the phase coherence of the waveform against a copy of the waveform advanced xi samples for an array of xi values to track how this coherence falls off at larger reference distances
 
     Parameters
     ------------
     wf: array
         waveform input array
-    fs: float
+    fs: int
         sample rate of waveform
     xis: array or dictionary
         array of xi to calculate the coherence for, the phase reference distances (in samples);
@@ -761,24 +767,24 @@ def get_colossogram(
 
 
 def get_welch(
-    wf,
-    fs,
-    tau,
-    nfft=None,
-    hop=None,
-    N_segs=None,
-    win=None,
-    scaling="density",
-    reuse_stft=None,
-    return_dict=False,
-):
+    wf: Union[NDArray[floating], list[float]],
+    fs: int,
+    tau: int,
+    nfft: Union[int, None] = None,
+    hop: Union[int, None] = None,
+    N_segs: Union[int, None] = None,
+    win: Union[str, tuple, NDArray[floating], None] = None,
+    scaling: str = "density",
+    reuse_stft: Union[dict, None] = None,
+    return_dict: bool = False,
+) -> Union[Tuple[NDArray[floating], NDArray[floating]], Dict[str, NDArray[floating]]]:
     """Gets the Welch averaged power of the given waveform with the given window size
 
     Parameters
     ------------
         wf: array
             waveform input array
-        fs: float
+        fs: int
             sample rate of waveform
         tau: int
             length (in samples) of each window; used in stft() and to calculate normalizing factor
@@ -865,17 +871,17 @@ def get_welch(
 
 
 def get_N_xi(
-    xis_s,
-    f,
-    colossogram,
-    f0,
-    decay_start_limit_xi_s=None,
-    noise_floor_bw_factor=1,
-    sigma_power=0,
-    start_peak_prominence=0.005,
-    A_const=False,
-    A_max=np.inf,
-):
+    xis_s: NDArray[floating],
+    f: NDArray[floating],
+    colossogram: NDArray[floating],
+    f0: float,
+    decay_start_limit_xi_s: Union[float, None] = None,
+    noise_floor_bw_factor: float = 1,
+    sigma_power: int = 0,
+    start_peak_prominence: float = 0.005,
+    A_const: bool = False,
+    A_max: float = np.inf,
+) -> Tuple[float, dict]:
     """Fits an exponential decay A*e^{-x/T} to a slice of the colossogram at a given frequency bin f0;
         returns a dimensionless time constant N_xi = f0*T representing the coherence decay timescale (in # cycles)
 
@@ -898,21 +904,21 @@ def get_N_xi(
         the SciPy curve_fit call is passed in a sigma parameter equal to y**(sigma_power)
             ...so sigma_power < 0 means that the end of the decay (lower y values) are considered less reliable/less prioritized in the fitting process than the beginning of the decay
     start_peak_prominence: float
-        prominence threshold for finding the initial peak to start the fit at 
+        prominence threshold for finding the initial peak to start the fit at
     A_const: bool
         when enabled, holds the exponential decay (A*e^{-x/T}) function's amplitude fixed at A=1
     A_max: float
         sets the upper bound for the exponential decay (A*e^{-x/T}) function's amplitude A
-    
+
     Returns
     -------
     N_xi : float
         dimensionless
     N_xi_fit_dict: dict
-        dictionary of various variables related to the fitting process; 
+        dictionary of various variables related to the fitting process;
         keys include:
-            "f", "f0_exact", "colossogram_slice", "N_xi", "N_xi_std", "T", "T_std", "A", "A_std", "mse", "is_noise", 
-            "decay_start_idx", "decayed_idx", "xis_s", "xis_s_fit_crop", "xis_num_cycles_fit_crop", "xis_num_cycles", 
+            "f", "f0_exact", "colossogram_slice", "N_xi", "N_xi_std", "T", "T_std", "A", "A_std", "mse", "is_noise",
+            "decay_start_idx", "decayed_idx", "xis_s", "xis_s_fit_crop", "xis_num_cycles_fit_crop", "xis_num_cycles",
             "fitted_exp_decay", "noise_means", "noise_stds", "noise_floor_bw_factor",
     """
     # Handle default; if none is passed, we'll assume the decay start is within the first 25% of the xis array
@@ -986,7 +992,7 @@ def get_N_xi(
     popt = None
     trim_step = 1
     # Set initial guesses and bounds
-    p0 = [0.5, 1] if not A_const else [0.5] #[T0, A0] or [T0]
+    p0 = [0.5, 1] if not A_const else [0.5]  # [T0, A0] or [T0]
     bounds = ([0, 0], [np.inf, A_max]) if not A_const else (0, np.inf)
     fit_func = exp_decay if not A_const else exp_decay_fixed_amp
 

@@ -1,1 +1,0 @@
-Welcome to phaseco! More info coming soon; in the meantime email me with any questions at seththepeacock@gmail.com

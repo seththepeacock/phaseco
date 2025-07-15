@@ -185,3 +185,4 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='#cycles', noise_bin=N
     plt.ylabel(r"$C_{\xi}$")
     plt.ylim(0, 1)
     plt.legend()
+    plt.tight_layout()

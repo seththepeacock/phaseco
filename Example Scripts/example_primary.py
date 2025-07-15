@@ -65,8 +65,16 @@ pw = True
 # Define the phase reference distance xi
 xi_s = 0.01  # This one I like to define in seconds (that's the _s) and then convert to samples later
 
-# Windowing method; see get_win_pc() documentation for dzetails
-win_meth = {'method': 'zeta', 'zeta': 0.05, 'win_type':'hann'}
+# Windowing method; see get_win_pc() documentation for details
+
+# Suggested parameters for rho windowing:
+    # (smoother, but less optimal frequency resolution/spurious coherence tradeoff)
+# win_meth = {'method': 'rho', 'rho': 0.07}
+
+# Suggested parameters for zeta windowing:
+    # (zeta=max allowed spurious coherence)
+win_meth = {'method': 'zeta', 'zeta': 0.01, 'win_type':'hann'}
+
 
 # Phase reference type
 ref_type = "next_seg"  # This means we reference the phase to the next segment AKA C_xi

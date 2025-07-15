@@ -162,18 +162,20 @@ def get_tau_zetas(tau_max, xis, zeta, win_type):
     # Start loop
     i = 0
     while tau_zeta < tau_max:
-        # We've just checked that this tau_zeta < tau_max, so let's add that last one to the list:
-        tau_zetas[i] = tau_zeta
+        tau_zetas[i] = tau_zeta # We've just checked that this tau_zeta < tau_max, so we add it to the list
         i += 1  # Now we move on to the next xi
+        if i == len(xis): #...unless there are no more
+            break
         xi = xis[i]
         # note we'll use the last tau_zeta as a lower bound in the search for the subsequent tau_zeta
         last_tau_zeta = tau_zeta
         tau_zeta = get_tau_zeta(
             tau_min=last_tau_zeta, tau_max=tau_max, xi=xi, zeta=zeta, win_type=win_type
         )
-        # Now, if this is still less than the tau_max, we add it to the array and keep going
-    # If it exceeds tau_max, then we can just fill the rest of tau_zetas array with tau_max
-    tau_zetas[i:] = np.full(len(xis) - i, tau_max)
+        # Now, if this is still less than the tau_max, we keep going through the while loop
+    # If, however, tau_zeta exceeded tau_max before we reached the end of the xis, then we can just fill the rest of tau_zetas array with tau_max
+    if i < len(xis):
+        tau_zetas[i:] = np.full(len(xis) - i, tau_max)
     if time_it:
         stop = time.time()
         print(
@@ -219,6 +221,9 @@ def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
 
 def exp_decay(x, T, amp):
     return amp * np.exp(-x / T)
+
+def exp_decay_fixed_amp(x, T):
+    return np.exp(-x / T)
 
 
 def get_win_meth_str(win_meth, latex=False):

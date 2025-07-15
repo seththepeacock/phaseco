@@ -53,7 +53,7 @@ def get_stft(
     fftshift_segs: bool, optional
         Shifts each time-domain window of the fft with fftshift() to center your window in time and make it zero-phase (has no effect on coherence)
     return_dict: bool, optional
-        Returns a dict with keys 'f', 'stft', 'seg_start_indices', 'segmented_wf', 'hop', 'fs', 'tau', 'hop', 'win', 'fs'
+        Instead of the standard (t, f, stft) tuple, returns a dict with keys 'f', 'stft', 'seg_start_indices', 'segmented_wf', 'hop', 'fs', 'tau', 'hop', 'win', 'fs'
     Returns
     -------
     t : numpy.ndarray
@@ -235,8 +235,8 @@ def get_autocoherence(
     return_avg_abs_pd: bool, optional
         Calculates <|phase diffs|> and adds to output dictionary
     return_dict: bool, optional
-        Defaults to only returning (f, coherence); but if this is enabled, then a dictionary is returned with keys:
-        'coherence', 'phase_diffs', 'avg_pd', 'N_pd', 'N_segs', 'f', 'stft', 'tau', 'hop', 'xi', 'fs', 'pw', 'avg_abs_pd'
+        Instead of the standard (f, coherence) tuple, returns a dictionary with keys:
+            'coherence', 'phase_diffs', 'avg_pd', 'N_pd', 'N_segs', 'f', 'stft', 'tau', 'hop', 'xi', 'fs', 'pw', 'avg_abs_pd'
     Returns
     -------
     f : numpy.ndarray
@@ -612,7 +612,7 @@ def get_colossogram(
     ref_type: str, optional
         Either "next_seg" to ref phase against next window or "next_freq" for next frequency bin or "both_freqs" to compare freq bin on either side
     return_dict: bool, optional
-        Defaults to only returning (xis_s, f, coherence); but if this is enabled, then a dictionary is returned with keys:
+        Instead of the standard (xis_s, f, colossogram) tuple, returns a dict with keys:
         'xis', 'xis_s', 'f', 'colossogram', 'tau', 'fs', 'N_pd_min', 'N_pd_max', 'hop', 'win_meth', 'global_xi_max'
     Returns
     -------
@@ -801,10 +801,14 @@ def get_welch(
         reuse_stft: tuple, optional
             Pass in the stft dictionary here to avoid recalculation
         return_dict: bool, optional
-            Returns a dict with:
-            d["f"] = f
-            d["spectrum"] = spectrum
-            d["segmented_spectrum"] = segmented_spectrum
+            instead of the standard (f, spectrum) tuple, returns a dict with keys:
+                'f', 'spectrum', 'segmented_spectrum'
+    Returns
+    -------
+    f : numpy.ndarray
+        frequency axis
+    spectrum : numpy.ndarray
+        spectrum calculated using the Welch method
     """
 
     # if nothing was passed into reuse_stft then we need to recalculate it
@@ -969,17 +973,16 @@ def get_N_xi(
             decay_start_idx = maxima[-1]
 
     # Find first time there is a dip below the noise floor
-    decayed_idx = np.argmax(
-        is_noise[decay_start_idx:]
-    )  # Returns index of the first maximum in the array e.g. the first 1
-    # If there are no 1s in the array -- aka EVERYTHING is noise -- it just returns 0
-    if decayed_idx == 0:
+    if np.all(~is_noise):
+        # If it never dips below the noise floor, we fit out until the end
         print(f"Signal at {f0_exact:.0f}Hz never decays!")
-        # In this case, we want to fit out to the very end
-        decayed_idx = -1
+        decayed_idx = None
     else:
+        first_dip_under_noise_floor = np.argmax(
+            is_noise[decay_start_idx:]
+        )  # Returns index of the first maximum in the array e.g. the first 1
         decayed_idx = (
-            decayed_idx + decay_start_idx
+            first_dip_under_noise_floor + decay_start_idx
         )  # account for the fact that our is_noise array was (temporarily) cropped
 
     # Curve Fit

@@ -626,6 +626,7 @@ def get_colossogram(
         win_type = win_meth["win_type"]
         # Calculate all tau_zetas at once
         tau_zetas = get_tau_zetas(tau_max=tau, xis=xis, zeta=zeta, win_type=win_type)
+
         # Define win_meth dict; zeta windowing is just a window of constant where the number of samples per segment (tau_zeta) changes with xi
         static_win_meth = {"method": "static", "win_type": win_type}
         for i, xi in enumerate(tqdm(xis)):
@@ -798,6 +799,7 @@ def get_N_xi(
     colossogram: NDArray[floating],
     f0: float,
     decay_start_limit_xi_s: Union[float, None] = None,
+    bootstrap_fit: bool = False,
     noise_floor_bw_factor: float = 1,
     sigma_power: int = 0,
     start_peak_prominence: float = 0.005,
@@ -811,9 +813,10 @@ def get_N_xi(
         f (np.ndarray): Array frequencies the colossogram was calculated over (Hz)
         colossogram (np.ndarray): Array of coherences as a function of [xi, f]
         f0 (float): Frequency to extract coherence slice from for exponential decay fitting
-        decay_start_limit_xi_s (float, optional):The fitting process looks for peaks in the range [0, decay_start_limit_xi_s] and starts the fit at the latest such peak
-        noise_floor_bw_factor (float, optional): the fit ends when the coherence hits the noise floor, which is a function of xi defined by [the mean coherence (over all freq bins)] + [noise_floor_bw_factor * std deviation (over all freq bins)]
-        sigma_power (int, optional): the SciPy curve_fit call is passed in a sigma parameter equal to y**(sigma_power); so sigma_power < 0 means that the end of the decay (lower y values) are considered less reliable/less prioritized in the fitting process than the beginning of the decay
+        decay_start_limit_xi_s (float, optional): The fitting process looks for peaks in the range [0, decay_start_limit_xi_s] and starts the fit at the latest such peak
+        bootstrap_fit (bool, optional): Fits 1000 times with bootstrapped data points and outputs the mean as N_xi and a matrix [idx, xi, fit] as N_xi_dict['all_fits']
+        noise_floor_bw_factor (float, optional): The fit ends when the coherence hits the noise floor, which is a function of xi defined by [the mean coherence (over all freq bins)] + [noise_floor_bw_factor * std deviation (over all freq bins)]
+        sigma_power (int, optional): The SciPy curve_fit call is passed in a sigma parameter equal to y**(sigma_power); so sigma_power < 0 means that the end of the decay (lower y values) are considered less reliable/less prioritized in the fitting process than the beginning of the decay
         start_peak_prominence (float, optional): Prominence threshold for finding the initial peak to start the fit at
         A_const (bool, optional): When enabled, holds the exponential decay (A*e^{-x/T}) function's amplitude fixed at A=1
         A_max (float, optional): Sets the upper bound for the exponential decay (A*e^{-x/T}) function's amplitude A

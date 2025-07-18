@@ -9,16 +9,17 @@ plt.figure(figsize=(12, 8))
 
 # --- Parameters ---
 fs = 44100  # Sampling rate (Hz), standard for many waveforms (including CDs!)
-T = 60  # Duration (seconds)
+T_s = 60  # Duration (seconds)
 f0 = 10000  # Nominal frequency of the sinusoid (Hz)
 A = 1.0  # Amplitude
-phase_noise_strength = 0.01  # Stddev of phase noise increments per sample (radians)
+D = 0.01  # Phase diffusion rate (radians^2 / s)
 
 # --- Time vector ---
-t = np.arange(0, T, 1 / fs)
+t = np.arange(0, T_s, 1 / fs)
 
 # --- Brownian phase noise ---
-dphi = np.random.normal(0, phase_noise_strength, size=t.shape)
+dt = 1 / fs
+dphi = np.random.normal(0, np.sqrt(2*D * dt), size=t.shape)
 phi = np.cumsum(dphi)  # Brownian motion (random walk)
 
 # --- Sinusoid with Brownian phase noise ---

@@ -7,7 +7,7 @@ from .funcs import *
 "Colossogram Plot Function"
 
 
-def plot_colossogram(xis_s, f, colossogram, title=None, max_khz=None, cmap="magma"):
+def plot_colossogram(xis_s, f, colossogram, pw=True, cmap="magma", return_cbar=False):
     # make meshgrid
     xx, yy = np.meshgrid(
         xis_s * 1000, f / 1000
@@ -25,20 +25,18 @@ def plot_colossogram(xis_s, f, colossogram, title=None, max_khz=None, cmap="magm
     )
 
     # get and set label for cbar
+    cbar_label = r'Coherence $C_\xi$' if pw else r'Coherence $C_\xi^\phi$'
     cbar = plt.colorbar(heatmap)
-    cbar.set_label("Vector Strength")
-    if max_khz is not None:
-        plt.ylim(0, max_khz)
+    cbar.set_label(cbar_label, labelpad=30)
 
     # set axes labels and titles
     plt.xlabel(rf"$\xi$ [ms]")
     plt.ylabel("Frequency [kHz]")
-    if title is None:
-        title = rf"Colossogram"
-    plt.title(title)
+    if return_cbar:
+        return cbar
 
 
-def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='#cycles', noise_bin=None, colossogram=None):
+def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floor=True, noise_bin=None, colossogram=None):
     # Unpack dict
     f                      = N_xi_dict["f"]
     f0_exact               = N_xi_dict["f0_exact"]
@@ -63,20 +61,16 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='#cycles', noise_bin=N
     noise_floor_bw_factor  = N_xi_dict['noise_floor_bw_factor']
 
     # Plotting parameters
-    plot_noise_on_fits = 1
-    plot_single_noise_bin_on_fits = (
-        0  # Set this to the frequency you want to plot
-    )
-    s_signal = 5
+    s_signal = 10
     s_noise = 5
     s_decayed = 100
     marker_signal = "o"
     marker_noise = "o"
     marker_decayed = "*"
-    lw_fit = 1.5
+    lw_fit = 2.0
     alpha_fit = 1
     pe_stroke_fit = [
-        pe.Stroke(linewidth=2, foreground="black", alpha=1),
+        pe.Stroke(linewidth=2.5, foreground="black", alpha=1),
         pe.Normal(),
     ]
     edgecolor_signal = None
@@ -114,42 +108,51 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='#cycles', noise_bin=N
             lw=lw_fit,
             path_effects=pe_stroke_fit,
             alpha=alpha_fit,
-            zorder=2,
+            zorder=1,
         )
 
     # Plot the coherence
-    # First plot the bit below the noise floor
-    plt.scatter(
-        x[is_noise],
-        colossogram_slice[is_noise],
-        s=s_noise,
-        color=color,
-        edgecolors=edgecolor_noise,
-        zorder=1,
-    )
-    # Then the bit above the noise floor
-    is_signal = ~is_noise
-    plt.scatter(
-        x[is_signal],
-        colossogram_slice[is_signal],
-        s=s_signal,
-        edgecolors=edgecolor_signal,
-        marker=marker_signal,
-        color=color,
-        zorder=1,
-    )
-    # Mark decayed point
-    plt.scatter(
-        x[decayed_idx],
-        colossogram_slice[decayed_idx],
-        s=s_decayed,
-        marker=marker_decayed,
-        color="#7E9BF9",
-        edgecolors=edgecolor_decayed,
-        zorder=3,
-    )
-    if plot_noise_on_fits:
-        # plt.scatter(x, noise_means, label='Noise Mean (Above 12kHz)', s=1, color=colors[4])
+    if not plot_noise_floor:
+        plt.scatter(
+            x,
+            colossogram_slice,
+            s=s_signal,
+            edgecolors=edgecolor_signal,
+            marker=marker_signal,
+            color=color,
+            zorder=2,
+        )
+    else:
+        # First plot the bit below the noise floor
+        plt.scatter(
+            x[is_noise],
+            colossogram_slice[is_noise],
+            s=s_noise,
+            color=color,
+            edgecolors=edgecolor_noise,
+            zorder=2,
+        )
+        # Then the bit above the noise floor
+        is_signal = ~is_noise
+        plt.scatter(
+            x[is_signal],
+            colossogram_slice[is_signal],
+            s=s_signal,
+            edgecolors=edgecolor_signal,
+            marker=marker_signal,
+            color=color,
+            zorder=2,
+        )
+        # Mark decayed point
+        plt.scatter(
+            x[decayed_idx],
+            colossogram_slice[decayed_idx],
+            s=s_decayed,
+            marker=marker_decayed,
+            color="#7E9BF9",
+            edgecolors=edgecolor_decayed,
+            zorder=3,
+        )
         noise_floor_bw_factor_str = (
             rf"(\sigma*{noise_floor_bw_factor})"
             if noise_floor_bw_factor != 1

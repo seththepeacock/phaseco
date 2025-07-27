@@ -12,7 +12,7 @@ fs = 44100  # Sampling rate (Hz), standard for many waveforms (including CDs!)
 T_s = 60  # Duration (seconds)
 f0 = 10000  # Nominal frequency of the sinusoid (Hz)
 A = 1.0  # Amplitude
-D = 0.01  # Phase diffusion rate (radians^2 / s)
+D = 1.0  # Phase diffusion rate (radians^2 / s)
 
 # --- Time vector ---
 t = np.arange(0, T_s, 1 / fs)
@@ -66,8 +66,7 @@ pw = True
 # Define the phase reference distance xi
 xi_s = 0.01  # This one I like to define in seconds (that's the _s) and then convert to samples later
 
-# Windowing method; see get_win_pc() documentation for details
-
+"Windowing method; see get_win_pc() documentation for details"
 # Suggested parameters for rho windowing:
     # (smoother, but less optimal frequency resolution/spurious coherence tradeoff)
 # win_meth = {'method': 'rho', 'rho': 0.07}
@@ -111,7 +110,8 @@ xis = {
     "xi_max_s": 1.0,
     "delta_xi_s": 0.01,
 }
-# the xis parameter can be dict like this to create evenly spaced array from xi_min to xi_max with step delta_xi (can be passed in samples or seconds)
+# the xis parameter can be dict like this to create evenly spaced array from xi_min to xi_max with step delta_xi
+# can be passed in samples (xi_min, etc) or seconds (xi_min_s, etc)
 # ...or it can just be the array of desired xi values (in samples)
 
 # Calculate colossogram

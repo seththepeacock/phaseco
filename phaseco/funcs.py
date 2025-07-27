@@ -799,7 +799,8 @@ def get_N_xi(
     colossogram: NDArray[floating],
     f0: float,
     decay_start_limit_xi_s: Union[float, None] = None,
-    bootstrap_fit: bool = False,
+    stop_fit: str = None,
+    stop_fit_frac: float = 0.1,
     noise_floor_bw_factor: float = 1,
     sigma_power: int = 0,
     start_peak_prominence: float = 0.005,
@@ -814,16 +815,17 @@ def get_N_xi(
         colossogram (np.ndarray): Array of coherences as a function of [xi, f]
         f0 (float): Frequency to extract coherence slice from for exponential decay fitting
         decay_start_limit_xi_s (float, optional): The fitting process looks for peaks in the range [0, decay_start_limit_xi_s] and starts the fit at the latest such peak
-        bootstrap_fit (bool, optional): Fits 1000 times with bootstrapped data points and outputs the mean as N_xi and a matrix [idx, xi, fit] as N_xi_dict['all_fits']
-        noise_floor_bw_factor (float, optional): The fit ends when the coherence hits the noise floor, which is a function of xi defined by [the mean coherence (over all freq bins)] + [noise_floor_bw_factor * std deviation (over all freq bins)]
+        stop_fit (str, optional): 'frac' ends fit when coherence reaches stop_fit_frac * coherence value at fit start, 'noise' ends fit at the noise floor (mean over all bins + std dev * noise_floor_bw_factor), None goes until end of xi array
+        stop_fit_frac (float, optional): with stop_fit=='frac', fit ends when coherence decay reaches stop_fit_frac * coherence value
+        noise_floor_bw_factor (float, optional): Noise floor is a function of xi defined by [the mean coherence (over all freq bins)] + [noise_floor_bw_factor * std deviation (over all freq bins)] (can be plotted and/or used to determine when to stop the fit)
         sigma_power (int, optional): The SciPy curve_fit call is passed in a sigma parameter equal to y**(sigma_power); so sigma_power < 0 means that the end of the decay (lower y values) are considered less reliable/less prioritized in the fitting process than the beginning of the decay
         start_peak_prominence (float, optional): Prominence threshold for finding the initial peak to start the fit at
         A_const (bool, optional): When enabled, holds the exponential decay (A*e^{-x/T}) function's amplitude fixed at A=1
         A_max (float, optional): Sets the upper bound for the exponential decay (A*e^{-x/T}) function's amplitude A
 
     Returns:
-        tuple: (N_xi, N_xi_fit_dict)
-            N_xi_fit_dict contains keys "f", "f0_exact", "colossogram_slice", "N_xi", "N_xi_std", "T", "T_std", "A", "A_std", "mse", "is_noise",
+        tuple: (N_xi, N_xi_dict)
+            N_xi_dict contains keys "f", "f0_exact", "colossogram_slice", "N_xi", "N_xi_std", "T", "T_std", "A", "A_std", "mse", "is_noise",
             "decay_start_idx", "decayed_idx", "xis_s", "xis_s_fit_crop", "xis_num_cycles_fit_crop", "xis_num_cycles",
             "fitted_exp_decay", "noise_means", "noise_stds", "noise_floor_bw_factor"
 
@@ -874,19 +876,39 @@ def get_N_xi(
                 f"Three or more peaks found in first {decay_start_limit_xi_s*1000:.0f}ms of xi, starting fit at last one!"
             )
             decay_start_idx = maxima[-1]
+    "Find decayed index"
+    match stop_fit:
+        case None:
+            decayed_idx = len(xis_s) - 1
+        case 'frac':
+            # Find the first time it dips below the fit start value * stop_fit_frac
+            thresh = colossogram_slice[decay_start_idx] * stop_fit_frac
+            # If it never dips below the thresh, we fit out until the end
+            if not np.any(colossogram_slice[decay_start_idx:] <= thresh):
+                print(f"Signal at {f0_exact:.0f}Hz never decays!")
+                decayed_idx = len(xis_s) - 1
+            else:
+                # This index of the first maximum in the array e.g. the first 1 e.g. first dip under thresh
+                first_dip_under_thresh = np.argmax(colossogram_slice[decay_start_idx:] <= thresh)
+                decayed_idx = first_dip_under_thresh + decay_start_idx
+                # account for the fact that our is_noise array was (temporarily) cropped
+                
+                
+        case 'noise':
+            # Find first time there is a dip below the noise floor
+            if np.all(~is_noise[decay_start_idx:]):
+                # If it never dips below the noise floor, we fit out until the end
+                print(f"Signal at {f0_exact:.0f}Hz never decays!")
+                decayed_idx = len(xis_s) - 1
+            else:
+                first_dip_under_noise_floor = np.argmax(
+                    is_noise[decay_start_idx:]
+                )  # Returns index of the first maximum in the array e.g. the first 1
+                decayed_idx = first_dip_under_noise_floor + decay_start_idx
+                # account for the fact that our is_noise array was (temporarily) cropped
 
-    # Find first time there is a dip below the noise floor
-    if np.all(~is_noise[decay_start_idx:]):
-        # If it never dips below the noise floor, we fit out until the end
-        print(f"Signal at {f0_exact:.0f}Hz never decays!")
-        decayed_idx = len(xis_s) - 1
-    else:
-        first_dip_under_noise_floor = np.argmax(
-            is_noise[decay_start_idx:]
-        )  # Returns index of the first maximum in the array e.g. the first 1
-        decayed_idx = (
-            first_dip_under_noise_floor + decay_start_idx
-        )  # account for the fact that our is_noise array was (temporarily) cropped
+
+        
 
     # Curve Fit
     print(f"Fitting exp decay to {f0_exact:.0f}Hz peak")

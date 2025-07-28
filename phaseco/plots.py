@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
+from matplotlib.colors import to_rgb, to_hex
 from .funcs import *
 
 
@@ -25,7 +26,7 @@ def plot_colossogram(xis_s, f, colossogram, pw=True, cmap="magma", return_cbar=F
     )
 
     # get and set label for cbar
-    cbar_label = r'Coherence $C_\xi$' if pw else r'Coherence $C_\xi^\phi$'
+    cbar_label = r'$C_\xi$' if pw else r'$C_\xi^\phi$'
     cbar = plt.colorbar(heatmap)
     cbar.set_label(cbar_label, labelpad=30)
 
@@ -36,7 +37,7 @@ def plot_colossogram(xis_s, f, colossogram, pw=True, cmap="magma", return_cbar=F
         return cbar
 
 
-def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floor=True, noise_bin=None, colossogram=None):
+def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floor=True, noise_bin=None, colossogram=None, lw_fit=3, lw_stroke=2, s_signal=10, s_noise=None):
     # Unpack dict
     f                      = N_xi_dict["f"]
     f0_exact               = N_xi_dict["f0_exact"]
@@ -61,21 +62,26 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floo
     noise_floor_bw_factor  = N_xi_dict['noise_floor_bw_factor']
 
     # Plotting parameters
-    s_signal = 10
-    s_noise = 5
+    if s_noise is None:
+        s_noise = s_signal
     s_decayed = 100
     marker_signal = "o"
     marker_noise = "o"
     marker_decayed = "*"
-    lw_fit = 2.0
     alpha_fit = 1
     pe_stroke_fit = [
-        pe.Stroke(linewidth=2.5, foreground="black", alpha=1),
+        pe.Stroke(linewidth=lw_fit + lw_stroke, foreground="black", alpha=1),
         pe.Normal(),
     ]
     edgecolor_signal = None
-    edgecolor_noise = "yellow"
+    edgecolor_noise = None
     edgecolor_decayed = "black"
+    rgb_color = to_rgb(color)
+    fit_lighten_amount = 0.5
+    white = (1, 1, 1)
+    fit_color = to_hex([(1 - fit_lighten_amount) * ch + fit_lighten_amount * w for ch, w in zip(rgb_color, white)])
+    # s_noise = 5
+    # edgecolor_decayed = "Yellow"
 
     if xaxis_units == '#cycles':
         x = xis_num_cycles
@@ -96,14 +102,14 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floo
         plt.title(rf"{f0_exact:.0f}Hz Peak")
 
         if T_std < np.inf and A_std < np.inf:
-            fit_label = rf"$N_{{\xi}}={N_xi:.3g}\pm{N_xi_std:.3g}$, $A={A:.3g}\pm{A_std:.3g}$, MSE={mse:.3g}"
+            fit_label = rf"[{f0_exact:.0f}Hz] $N_{{\xi}}={N_xi:.3g}\pm{N_xi_std:.3g}$, $A={A:.3g}\pm{A_std:.3g}$, MSE={mse:.3g}"
         else:
             fit_label = ""
             print("One or more params is infinite!")
         plt.plot(
             x_fit_crop,
             fitted_exp_decay,
-            color=color,
+            color=fit_color,
             label=fit_label,
             lw=lw_fit,
             path_effects=pe_stroke_fit,
@@ -129,6 +135,7 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floo
             colossogram_slice[is_noise],
             s=s_noise,
             color=color,
+            marker=marker_noise,
             edgecolors=edgecolor_noise,
             zorder=2,
         )
@@ -188,4 +195,3 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floo
     plt.ylabel(r"$C_{\xi}$")
     plt.ylim(0, 1)
     plt.legend()
-    plt.tight_layout()

@@ -22,6 +22,7 @@ def get_stft(
     hop: Optional[int] = None,
     win: Optional[Union[NDArray[floating], list[float], str]] = None,
     N_segs: Optional[int] = None,
+    phase_corr: Optional[bool] = False,
     fftshift_segs: Optional[bool] = False,
     return_dict: Optional[bool] = False,
 ) -> Union[
@@ -42,6 +43,7 @@ def get_stft(
         nfft (int, optional): FFT length. Zero-padding is applied if nfft > tau.
         hop (int, optional): Hop size between segments (defaults to tau//2).
         N_segs (int, optional): Limits number of segments to extract.
+        phase_corr (bool, optional): Phase shifts all FT coefficients to share same reference (start of waveform)
         fftshift_segs (bool, optional): If True, shifts each window in the fft with fftshift() to center your window in time and make it zero-phase (has no effect on coherence)
         return_dict (bool, optional): If True, returns a dict with keys 't', 'f', 'stft', 'seg_start_indices',
               'segmented_wf', 'hop', 'fs', 'tau', 'window'
@@ -148,17 +150,27 @@ def get_stft(
     N_bins = len(f)
     stft = np.empty((N_segs, N_bins), dtype=complex)
 
-    # IMPLEMENT rfft with different nfft instead of zpadding since probably more efficient1
+    # TODO implement rfft with different nfft instead of zpadding since probably more efficient
     # get ffts
     for k in range(N_segs):
         stft[k, :] = rfft(segmented_wf[k, :])
 
-    # Finally, get time array from seg_start_indices (center of each seg)
-    t = (np.array(seg_start_indices) + tau // 2) / fs
+    # Get time arrays from seg_start_indices
+    t_starts = (np.array(seg_start_indices)) / fs # Used in phase correction factor
+    t_centers = t_starts + (tau // 2) / fs # For the returned t array, shift to the window centers 
+    # since this phase estimates are an average over the length of the window it makes more sense to use centers
+    
+    # Phase correct;
+    # note that this has no effect on autocoherence since it will not affect the consistency of phase differences
+    # ...for C_xi/C_tau, it will shift all phases by the same amount and phase difference will be entirely unchanged
+    # for C_omega, it will shift the phase difference but not its consistency
+    if phase_corr:
+        phase_corr_factors = np.exp(-1j * 2 * np.pi * f[None, :] * t_starts[:, None])
+        stft = stft * phase_corr_factors
 
     if return_dict:
         return {
-            "t": t,
+            "t": t_centers,
             "f": f,
             "stft": stft,
             "seg_start_indices": seg_start_indices,
@@ -170,7 +182,7 @@ def get_stft(
         }
 
     else:
-        return t, f, stft
+        return t_centers, f, stft
 
 
 def get_autocoherence(
@@ -223,6 +235,9 @@ def get_autocoherence(
     # Get window (and possibly redfine tau if doing zeta windowing)
     win, tau_updated = get_win_pc(win_meth, tau, xi, ref_type)
 
+    # We only need to correct the phase reference if we're reterning <|phase_diffs|>
+    phase_corr = return_avg_abs_pd
+
     # we can reference each phase against the phase of the same frequency in the next window:
     if ref_type == "next_seg":
         # First, check if we can get away with a single STFT; this only works if each xi is an integer number of segment hops away
@@ -241,6 +256,7 @@ def get_autocoherence(
                 hop=hop,
                 win=win,
                 N_segs=N_segs,
+                phase_corr=phase_corr,
             )
 
             # Get some lengths
@@ -285,6 +301,7 @@ def get_autocoherence(
                 nfft=nfft,
                 win=win,
                 N_segs=N_pd,
+                phase_corr=phase_corr,
             )
             t, f, stft_xi_adv = get_stft(
                 wf=wf[xi:],
@@ -294,6 +311,7 @@ def get_autocoherence(
                 nfft=nfft,
                 win=win,
                 N_segs=N_pd,
+                phase_corr=phase_corr,
             )
             N_bins = len(f)
             # First, do the pw case
@@ -319,7 +337,14 @@ def get_autocoherence(
     elif ref_type == "next_freq":
         # get phases and initialize array for phase diffs
         t, f, stft = get_stft(
-            wf=wf, fs=fs, tau=tau_updated, hop=hop, nfft=nfft, win=win, N_segs=N_pd
+            wf=wf,
+            fs=fs,
+            tau=tau_updated,
+            hop=hop,
+            nfft=nfft,
+            win=win,
+            N_segs=N_pd,
+            phase_corr=phase_corr,
         )
         # Calculate N_segs and N_bins
         N_segs = stft.shape[0]
@@ -353,7 +378,14 @@ def get_autocoherence(
     elif ref_type == "both_freqs":
         # Get phases
         t, f, stft = get_stft(
-            wf=wf, fs=fs, tau=tau_updated, hop=hop, win=win, nfft=nfft, N_segs=N_pd
+            wf=wf,
+            fs=fs,
+            tau=tau_updated,
+            hop=hop,
+            win=win,
+            nfft=nfft,
+            N_segs=N_pd,
+            phase_corr=phase_corr,
         )
         phases = np.angle(stft)
         # Calculate N_segs and N_bins
@@ -414,6 +446,7 @@ def get_autocoherence(
             d["phase_diffs"] = phase_diffs
 
         if return_avg_abs_pd:
+            # This makes the phases in the range [-pi, pi]
             phase_diffs = (phase_diffs + np.pi) % (2 * np.pi) - np.pi
             print("CHECK THIS NEW <|phase diffs|> IMPLEMENTATION WORKS AS EXPECTED")
             # get <|phase diffs|> (note we're taking mean w.r.t. PD axis 0, not frequency axis)
@@ -799,7 +832,7 @@ def get_N_xi(
     colossogram: NDArray[floating],
     f0: float,
     decay_start_limit_xi_s: Union[float, None] = None,
-    mse_thresh: float = np.inf, 
+    mse_thresh: float = np.inf,
     stop_fit: str = None,
     stop_fit_frac: float = 0.1,
     noise_floor_bw_factor: float = 1,
@@ -816,7 +849,7 @@ def get_N_xi(
         colossogram (np.ndarray): Array of coherences as a function of [xi, f]
         f0 (float): Frequency to extract coherence slice from for exponential decay fitting
         decay_start_limit_xi_s (float, optional): The fitting process looks for peaks in the range [0, decay_start_limit_xi_s] and starts the fit at the latest such peak
-        mse_thresh (float, optional): Repeats fit until MSE < mse_thresh, shaving the smallest xi off each 
+        mse_thresh (float, optional): Repeats fit until MSE < mse_thresh, shaving the smallest xi off each
         stop_fit (str, optional): 'frac' ends fit when coherence reaches stop_fit_frac * coherence value at fit start, 'noise' ends fit at the noise floor (mean over all bins + std dev * noise_floor_bw_factor), None goes until end of xi array
         stop_fit_frac (float, optional): with stop_fit=='frac', fit ends when coherence decay reaches stop_fit_frac * coherence value
         noise_floor_bw_factor (float, optional): Noise floor is a function of xi defined by [the mean coherence (over all freq bins)] + [noise_floor_bw_factor * std deviation (over all freq bins)] (can be plotted and/or used to determine when to stop the fit)
@@ -878,12 +911,12 @@ def get_N_xi(
                 f"Three or more peaks found in first {decay_start_limit_xi_s*1000:.0f}ms of xi, starting fit at last one!"
             )
             decay_start_idx = maxima[-1]
-    
+
     "Find decayed index"
     match stop_fit:
         case None:
             decayed_idx = len(xis_s) - 1
-        case 'frac':
+        case "frac":
             # Find the first time it dips below the fit start value * stop_fit_frac
             thresh = colossogram_slice[decay_start_idx] * stop_fit_frac
             # If it never dips below the thresh, we fit out until the end
@@ -892,11 +925,13 @@ def get_N_xi(
                 decayed_idx = len(xis_s) - 1
             else:
                 # This index of the first maximum in the array e.g. the first 1 e.g. first dip under thresh
-                first_dip_under_thresh = np.argmax(colossogram_slice[decay_start_idx:] <= thresh)
+                first_dip_under_thresh = np.argmax(
+                    colossogram_slice[decay_start_idx:] <= thresh
+                )
                 decayed_idx = first_dip_under_thresh + decay_start_idx
-                # account for the fact that our is_noise array was (temporarily) cropped 
-                
-        case 'noise':
+                # account for the fact that our is_noise array was (temporarily) cropped
+
+        case "noise":
             # Find first time there is a dip below the noise floor
             if np.all(~is_noise[decay_start_idx:]):
                 # If it never dips below the noise floor, we fit out until the end
@@ -908,8 +943,6 @@ def get_N_xi(
                 )  # Returns index of the first maximum in the array e.g. the first 1
                 decayed_idx = first_dip_under_noise_floor + decay_start_idx
                 # account for the fact that our is_noise array was (temporarily) cropped
-    
-
 
     # Crop arrays now that we have start and end indices
     xis_s_fit_crop = xis_s[decay_start_idx:decayed_idx]
@@ -919,18 +952,16 @@ def get_N_xi(
 
     # Curve Fit
     print(f"Fitting exp decay to {f0_exact:.0f}Hz peak")
-    
 
     # Initialize fitting vars
     failures = 0
     popt = None
-    trim_step = 1 # Amount to trim off beginning of fit when need to re-fit
+    trim_step = 1  # Amount to trim off beginning of fit when need to re-fit
     # Set initial guesses and bounds
     p0 = [0.5, 1] if not A_const else [0.5]  # [T0, A0] or [T0]
     bounds = ([0, 0], [np.inf, A_max]) if not A_const else (0, np.inf)
     fit_func = exp_decay if not A_const else exp_decay_fixed_amp
     mse = np.inf
-    
 
     # Continue the fit loop as long as we have xis left and the fit failed OR mse was too big
     while len(xis_s_fit_crop) > trim_step and (popt is None or mse > mse_thresh):
@@ -942,7 +973,7 @@ def get_N_xi(
             match stop_fit:
                 case None:
                     decayed_idx = len(xis_s) - 1
-                case 'frac':
+                case "frac":
                     # Find the first time it dips below the fit start value * stop_fit_frac
                     thresh = colossogram_slice[decay_start_idx] * stop_fit_frac
                     # If it never dips below the thresh, we fit out until the end
@@ -951,11 +982,13 @@ def get_N_xi(
                         decayed_idx = len(xis_s) - 1
                     else:
                         # This index of the first maximum in the array e.g. the first 1 e.g. first dip under thresh
-                        first_dip_under_thresh = np.argmax(colossogram_slice[decay_start_idx:] <= thresh)
+                        first_dip_under_thresh = np.argmax(
+                            colossogram_slice[decay_start_idx:] <= thresh
+                        )
                         decayed_idx = first_dip_under_thresh + decay_start_idx
-                        # account for the fact that our is_noise array was (temporarily) cropped 
-                        
-                case 'noise':
+                        # account for the fact that our is_noise array was (temporarily) cropped
+
+                case "noise":
                     # Find first time there is a dip below the noise floor
                     if np.all(~is_noise[decay_start_idx:]):
                         # If it never dips below the noise floor, we fit out until the end
@@ -973,7 +1006,6 @@ def get_N_xi(
             if sigma is not None:
                 sigma = sigma[decay_start_idx:decayed_idx]
 
-            
         try:
             popt, pcov = curve_fit(
                 fit_func,
@@ -984,14 +1016,14 @@ def get_N_xi(
                 bounds=bounds,
             )
             # If we get here, the fit succeeded, so let's calculate the MSE to see if we can really exit the while loop
-            
+
             # Get the fitted exponential decay
             fitted_exp_decay = (
-            exp_decay(xis_s_fit_crop, *popt)
-            if not A_const
-            else exp_decay_fixed_amp(xis_s_fit_crop, *popt)
-        )
-            
+                exp_decay(xis_s_fit_crop, *popt)
+                if not A_const
+                else exp_decay_fixed_amp(xis_s_fit_crop, *popt)
+            )
+
             # Calculate MSE
             mse = np.mean((fitted_exp_decay - cgram_slice_fit_crop) ** 2)
 
@@ -999,12 +1031,10 @@ def get_N_xi(
                 print(
                     f"Fit succeeded, but MSE={mse} > mse_thresh={mse_thresh} — trimming and re-fitting!"
                 )
-                failures+=1
+                failures += 1
         except (RuntimeError, ValueError) as e:
-            print(
-                f"Fit failed (attempt {failures}): — trimming and re-fitting!"
-            )
-            failures+=1
+            print(f"Fit failed (attempt {failures}): — trimming and re-fitting!")
+            failures += 1
 
     # HAndle case where curve fit fails
     if popt is None:
@@ -1026,8 +1056,6 @@ def get_N_xi(
         T_std = perr[0]
         A = popt[1] if not A_const else 1
         A_std = perr[1] if not A_const else 0
-
-        
 
     # Calculate xis in num cycles
     xis_num_cycles = xis_s * f0_exact

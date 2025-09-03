@@ -44,7 +44,7 @@ def get_stft(
         hop (int, optional): Hop size between segments (defaults to tau//2).
         N_segs (int, optional): Limits number of segments to extract.
         phase_corr (bool, optional): Phase shifts all FT coefficients to share same reference (start of waveform)
-        fftshift_segs (bool, optional): If True, shifts each window in the fft with fftshift() to center your window in time and make it zero-phase (has no effect on coherence)
+        fftshift_segs (bool, optional): If True, shifts each window in the fft with fftshift() to center your window in time and make it zero-phase (has no effect on autocoherence)
         return_dict (bool, optional): If True, returns a dict with keys 't', 'f', 'stft', 'seg_start_indices',
               'segmented_wf', 'hop', 'fs', 'tau', 'window'
 
@@ -203,7 +203,7 @@ def get_autocoherence(
     Tuple[NDArray[floating], NDArray[floating]],
     Dict[str, Union[NDArray, int]],
 ]:
-    """Computes phase coherence of a waveform against a time-advanced version of itself.
+    """Computes phase autocoherence of a waveform against a time-advanced version of itself.
 
     Args:
         wf (array or list of float): Input waveform.
@@ -221,7 +221,7 @@ def get_autocoherence(
         return_dict (bool, optional): If True, returns dictionary with variables 'coherence', 'phase_diffs', 'avg_pd', 'N_pd', 'N_segs', 'f', 'stft', 'tau', 'hop', 'xi', 'fs', 'pw', 'avg_abs_pd'
 
     Returns:
-        tuple: (f, coherence) unless return_dict is True
+        tuple: (f, autocoherence) unless return_dict is True
     """
 
     # Handle defaults
@@ -276,7 +276,7 @@ def get_autocoherence(
                 # IMPLEMENT quicker way to do this since most of the mean is shared?
                 Pxx = np.mean(powers[0:-xi_nsegs], 0)
                 Pyy = np.mean(powers[xi_nsegs:], 0)
-                coherence = (Pxy.real**2 + Pxy.imag**2) / (Pxx * Pyy)
+                autocoherence = (Pxy.real**2 + Pxy.imag**2) / (Pxx * Pyy)
                 avg_pd = np.angle(Pxy)
 
             # Now the unweighted way
@@ -290,7 +290,7 @@ def get_autocoherence(
                         phases[seg + xi_nsegs] - phases[seg]
                     )  # minus sign <=> conj
                     # IMPLEMENT vectorized way to do this^^?
-                coherence, avg_pd = get_avg_vector(phase_diffs)
+                autocoherence, avg_pd = get_avg_vector(phase_diffs)
         else:
             # In this case, xi is not an integer number of hops away, so we need two stfts each with N_pd segments
             _, _, stft = get_stft(
@@ -316,13 +316,13 @@ def get_autocoherence(
             N_bins = len(f)
             # First, do the pw case
             if pw:
-                xy = np.conj(stft) * stft_xi_adv
+                xy = stft_xi_adv * np.conj(stft)
                 Pxy = np.mean(xy, 0)
                 powers = stft.real**2 + stft.imag**2
                 powers_xi_adv = stft_xi_adv.real**2 + stft_xi_adv.imag**2
                 Pxx = np.mean(powers, 0)
                 Pyy = np.mean(powers_xi_adv, 0)
-                coherence = (Pxy.real**2 + Pxy.imag**2) / (Pxx * Pyy)
+                autocoherence = (Pxy.real**2 + Pxy.imag**2) / (Pxx * Pyy)
                 avg_pd = np.angle(Pxy)
 
             # Now the unweighted way
@@ -331,7 +331,7 @@ def get_autocoherence(
                 phases_xi_adv = np.angle(stft_xi_adv)
                 # calc phase diffs
                 phase_diffs = phases_xi_adv - phases  # minus sign <=> conj
-                coherence, avg_pd = get_avg_vector(phase_diffs)
+                autocoherence, avg_pd = get_avg_vector(phase_diffs)
 
     # or we can reference it against the phase of the next frequency in the same window:
     elif ref_type == "next_freq":
@@ -364,8 +364,8 @@ def get_autocoherence(
                     phases[seg, freq_bin + freq_bin_hop] - phases[seg, freq_bin]
                 )
 
-        # get final coherence
-        coherence, avg_pd = get_avg_vector(phase_diffs)
+        # get final autocoherence
+        autocoherence, avg_pd = get_avg_vector(phase_diffs)
 
         # Since this references each frequency bin to its adjacent neighbor, we'll plot them w.r.t. the average frequency;
         # this corresponds to shifting everything over half a bin width
@@ -411,20 +411,20 @@ def get_autocoherence(
                 )
         # set the phase diffs to one of these so we can return (could've also been pd_high)
         phase_diffs = pd_low
-        coherence_low, avg_pd = get_avg_vector(pd_low)
-        coherence_high, _ = get_avg_vector(pd_high)
+        autocoherence_low, avg_pd = get_avg_vector(pd_low)
+        autocoherence_high, _ = get_avg_vector(pd_high)
         # average the colossogram you would get from either of these
-        coherence = (coherence_low + coherence_high) / 2
+        autocoherence = (autocoherence_low + autocoherence_high) / 2
 
     else:
         raise Exception("You didn't input a valid ref_type!")
 
     if not return_dict:
-        return f, coherence
+        return f, autocoherence
 
     else:  # Return full dictionary
         d = {
-            "coherence": coherence,
+            "autocoherence": autocoherence,
             "avg_pd": avg_pd,
             "N_pd": N_pd,
             "t": t,
@@ -439,17 +439,16 @@ def get_autocoherence(
         }
 
         # Add a couple outputs that only sometimes exist
-        phase_diffs = (
-            0  # Needed to convince type checker (CTC) it's defined when we need it
-        )
         if not pw:
             d["phase_diffs"] = phase_diffs
 
         if return_avg_abs_pd:
+            if pw:
+                phase_diffs = np.angle(xy)
             # This makes the phases in the range [-pi, pi]
             phase_diffs = (phase_diffs + np.pi) % (2 * np.pi) - np.pi
-            print("CHECK THIS NEW <|phase diffs|> IMPLEMENTATION WORKS AS EXPECTED")
             # get <|phase diffs|> (note we're taking mean w.r.t. PD axis 0, not frequency axis)
+            print(np.min(phase_diffs), np.max(phase_diffs))
             d["avg_abs_pd"] = np.mean(np.abs(phase_diffs), 0)
         return d
 
@@ -472,12 +471,12 @@ def get_win_pc(
                   Required keys: `rho`, `snapping_rhortle`
 
                 - `'zeta'`: Use a window of type `win_type` with a shortened duration `tau`, such that
-                  the expected coherence for white noise is ≤ `zeta`. Zero-padding is applied up to `tau`
+                  the expected autocoherence for white noise is ≤ `zeta`. Zero-padding is applied up to `tau`
                   to maintain the number of frequency bins. Required keys: `zeta`, `win_type`
 
             - `rho` (float, optional): Controls the FWHM of the Gaussian window when `method == 'rho'`.
 
-            - `zeta` (float, optional): Maximum allowable spurious coherence due to overlap in the white noise case
+            - `zeta` (float, optional): Maximum allowable spurious autocoherence due to overlap in the white noise case
               (used when `method == 'zeta'`).
 
             - `win_type` (str or tuple, optional): Window type to be passed to `scipy.signal.get_window()`
@@ -571,13 +570,13 @@ def get_colossogram(
     Tuple[NDArray[floating], NDArray[floating], NDArray[floating]],
     Dict[str, Union[NDArray, dict, str]],
 ]:
-    """Computes phase coherence over multiple time lags.
+    """Computes phase autocoherence over multiple time lags.
 
     Args:
         wf (array): Input waveform.
         fs (int): Sample rate.
         xis (array or dict): Array of lags or dict with 'xi_min', 'xi_max', 'delta_xi'.
-        pw (bool): If True, calculates the coherence as (Pxy)**2 / (Pxx * Pyy) where y is a xi-advanced copy of the original wf x; this is *almost* like weighting the original vector strength average by the magnitude of each segment * magnitude of xi advanced segment
+        pw (bool): If True, calculates the autocoherence as (Pxy)**2 / (Pxx * Pyy) where y is a xi-advanced copy of the original wf x; this is *almost* like weighting the original vector strength average by the magnitude of each segment * magnitude of xi advanced segment
         tau (int): Window length in samples.
         nfft (int, optional): FFT size in samples; implements zero padding if nfft > tau
         hop (int, optional): Hop size in samples; defaults to tau // 2.
@@ -588,7 +587,7 @@ def get_colossogram(
         return_dict (bool, optional): If True, returns full dictionary with keys 'xis', 'xis_s', 'f', 'colossogram', 'tau', 'fs', 'N_pd_min', 'N_pd_max', 'hop', 'win_meth', 'global_xi_max'
 
     Returns:
-        tuple: (f, coherence) unless return_dict is True
+        tuple: (f, autocoherence) unless return_dict is True
     """
 
     # Handle defaults
@@ -598,7 +597,7 @@ def get_colossogram(
     xis = get_xis_array(xis, fs, hop)
     xi_min = xis[0]
     xi_max = xis[-1]
-    # ...this func also prints if we can turbo boost all the coherence calculations by only calculating a single STFT since xi is always an integer number of segs away
+    # ...this func also prints if we can turbo boost all the autocoherence calculations by only calculating a single STFT since xi is always an integer number of segs away
 
     # Get frequency array
     f = np.array(rfftfreq(tau, 1 / fs))
@@ -750,10 +749,10 @@ def get_welch(
     Args:
         xis_s (np.ndarray): Array of xis the colossogram was calculated over (seconds)
         f (np.ndarray): Array frequencies the colossogram was calculated over (Hz)
-        colossogram (np.ndarray): Array of coherences as a function of [xi, f]
-        f0 (float): Frequency to extract coherence slice from for exponential decay fitting
+        colossogram (np.ndarray): Array of autocoherences as a function of [xi, f]
+        f0 (float): Frequency to extract autocoherence slice from for exponential decay fitting
         decay_start_limit_xi_s (float, optional):The fitting process looks for peaks in the range [0, decay_start_limit_xi_s] and starts the fit at the latest such peak
-        noise_floor_bw_factor (float, optional): the fit ends when the coherence hits the noise floor, which is a function of xi defined by [the mean coherence (over all freq bins)] + [noise_floor_bw_factor * std deviation (over all freq bins)]
+        noise_floor_bw_factor (float, optional): the fit ends when the autocoherence hits the noise floor, which is a function of xi defined by [the mean autocoherence (over all freq bins)] + [noise_floor_bw_factor * std deviation (over all freq bins)]
         sigma_power (int, optional): the SciPy curve_fit call is passed in a sigma parameter equal to y**(sigma_power); so sigma_power < 0 means that the end of the decay (lower y values) are considered less reliable/less prioritized in the fitting process than the beginning of the decay
         start_peak_prominence (float, optional): Prominence threshold for finding the initial peak to start the fit at
         A_const (bool, optional): When enabled, holds the exponential decay (A*e^{-x/T}) function's amplitude fixed at A=1
@@ -841,18 +840,18 @@ def get_N_xi(
     A_const: bool = False,
     A_max: float = np.inf,
 ) -> Tuple[float, dict]:
-    """Fits an exponential decay Ae^(-x/T) to a slice of the colossogram at a given frequency bin f0; returns a dimensionless time constant N_xi = f0*T representing the coherence decay timescale (in # cycles)
+    """Fits an exponential decay Ae^(-x/T) to a slice of the colossogram at a given frequency bin f0; returns a dimensionless time constant N_xi = f0*T representing the autocoherence decay timescale (in # cycles)
 
     Args:
         xis_s (np.ndarray): Array of xis the colossogram was calculated over (seconds)
         f (np.ndarray): Array frequencies the colossogram was calculated over (Hz)
-        colossogram (np.ndarray): Array of coherences as a function of [xi, f]
-        f0 (float): Frequency to extract coherence slice from for exponential decay fitting
+        colossogram (np.ndarray): Array of autocoherences as a function of [xi, f]
+        f0 (float): Frequency to extract autocoherence slice from for exponential decay fitting
         decay_start_limit_xi_s (float, optional): The fitting process looks for peaks in the range [0, decay_start_limit_xi_s] and starts the fit at the latest such peak
         mse_thresh (float, optional): Repeats fit until MSE < mse_thresh, shaving the smallest xi off each
-        stop_fit (str, optional): 'frac' ends fit when coherence reaches stop_fit_frac * coherence value at fit start, 'noise' ends fit at the noise floor (mean over all bins + std dev * noise_floor_bw_factor), None goes until end of xi array
-        stop_fit_frac (float, optional): with stop_fit=='frac', fit ends when coherence decay reaches stop_fit_frac * coherence value
-        noise_floor_bw_factor (float, optional): Noise floor is a function of xi defined by [the mean coherence (over all freq bins)] + [noise_floor_bw_factor * std deviation (over all freq bins)] (can be plotted and/or used to determine when to stop the fit)
+        stop_fit (str, optional): 'frac' ends fit when autocoherence reaches stop_fit_frac * autocoherence value at fit start, 'noise' ends fit at the noise floor (mean over all bins + std dev * noise_floor_bw_factor), None goes until end of xi array
+        stop_fit_frac (float, optional): with stop_fit=='frac', fit ends when autocoherence decay reaches stop_fit_frac * autocoherence value
+        noise_floor_bw_factor (float, optional): Noise floor is a function of xi defined by [the mean autocoherence (over all freq bins)] + [noise_floor_bw_factor * std deviation (over all freq bins)] (can be plotted and/or used to determine when to stop the fit)
         sigma_power (int, optional): The SciPy curve_fit call is passed in a sigma parameter equal to y**(sigma_power); so sigma_power < 0 means that the end of the decay (lower y values) are considered less reliable/less prioritized in the fitting process than the beginning of the decay
         start_peak_prominence (float, optional): Prominence threshold for finding the initial peak to start the fit at
         A_const (bool, optional): When enabled, holds the exponential decay (A*e^{-x/T}) function's amplitude fixed at A=1
@@ -874,7 +873,7 @@ def get_N_xi(
     f0_exact = f[f0_idx]  # Get true f0 target frequency bin center
     colossogram_slice = colossogram[:, f0_idx]  # Get colossogram slice
     # Calculate sigma weights in fits; bigger sigma = less sure about this point
-    # So sigma_power <= -1 means weight the low coherence bins less and focus on the initial decay more
+    # So sigma_power <= -1 means weight the low autocoherence bins less and focus on the initial decay more
     sigma = None if sigma_power == 0 else colossogram_slice**sigma_power
 
     # Calculate noise floor and when we've dipped below it

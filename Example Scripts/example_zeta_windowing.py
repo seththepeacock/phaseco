@@ -45,9 +45,9 @@ colossogram_avg = np.mean(colossogram, 1)
 
 "Plot"
 plt.plot(xis_s*1000, colossogram_avg, label=rf"$\zeta={zeta}$", color='purple')
-plt.title("White Noise Coherence (Avg Across Freq)")
+plt.title("White Noise autocoherence (Avg Across Freq)")
 plt.suptitle(method_id)
-plt.ylabel("Coherence")
+plt.ylabel("Autocoherence")
 plt.xlabel(r"$\xi$ [ms]")
 plt.ylim(0, 1)
 plt.legend(loc='upper left')
@@ -59,4 +59,4 @@ ax2.legend(loc='center right')
 
 plt.tight_layout()
 plt.show()
-# Note how the coherence never goes above zeta! (Change zeta and try it!)
+# Note how the autocoherence never goes above zeta! (Change zeta and try it!)

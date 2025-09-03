@@ -55,7 +55,7 @@ plt.xlabel("Frequency [Hz]")
 plt.ylabel("PSD [dB]")
 plt.legend()
 
-"Get phase coherence spectrum"
+"Get phase autocoherence spectrum"
 # --- Parameters ---
 
 pw = True
@@ -68,11 +68,11 @@ xi_s = 0.01  # This one I like to define in seconds (that's the _s) and then con
 
 "Windowing method; see get_win_pc() documentation for details"
 # Suggested parameters for rho windowing:
-    # (smoother, but less optimal frequency resolution/spurious coherence tradeoff)
+    # (smoother, but less optimal frequency resolution/spurious autocoherence tradeoff)
 # win_meth = {'method': 'rho', 'rho': 0.07}
 
 # Suggested parameters for zeta windowing:
-    # (zeta=max allowed spurious coherence)
+    # (zeta=max allowed spurious autocoherence)
 win_meth = {'method': 'zeta', 'zeta': 0.01, 'win_type':'hann'}
 
 
@@ -83,7 +83,7 @@ ref_type = "next_seg"  # This means we reference the phase to the next segment A
 # Convert to samples
 xi = round(xi_s * fs)
 
-# Calculate coherence of waveform with itself
+# Calculate autocoherence of waveform with itself
 f, acoh = pc.get_autocoherence(
     wf, fs, xi, pw, tau, hop=hop, win_meth=win_meth, ref_type=ref_type
 )
@@ -91,7 +91,7 @@ f, acoh = pc.get_autocoherence(
 # Plot
 plt.subplot(2, 2, 2)
 plt.title("Autocoherence Spectrum")
-plt.plot(f, acoh, label=rf"Coherence ($\xi={xi_s*1000:.1f}$ms)")
+plt.plot(f, acoh, label=rf"Autocoherence ($\xi={xi_s*1000:.1f}$ms)")
 # Get the frequency bin of interest and mark it
 f0_idx = np.argmin(np.abs(f - f0))
 plt.scatter(f[f0_idx], acoh[f0_idx], color="red")
@@ -102,7 +102,7 @@ plt.legend()
 
 
 "Get Colossogram"
-# This is a series of autocoherences, one for each xi value, showing how the coherence falls off with increasing reference distance
+# This is a series of autocoherences, one for each xi value, showing how the autocoherence falls off with increasing reference distance
 
 # --- Parameters ---
 xis = {

@@ -156,10 +156,12 @@ def get_stft(
         stft[k, :] = rfft(segmented_wf[k, :])
 
     # Get time arrays from seg_start_indices
-    t_starts = (np.array(seg_start_indices)) / fs # Used in phase correction factor
-    t_centers = t_starts + (tau // 2) / fs # For the returned t array, shift to the window centers 
+    t_starts = (np.array(seg_start_indices)) / fs  # Used in phase correction factor
+    t_centers = (
+        t_starts + (tau // 2) / fs
+    )  # For the returned t array, shift to the window centers
     # since this phase estimates are an average over the length of the window it makes more sense to use centers
-    
+
     # Phase correct;
     # note that this has no effect on autocoherence since it will not affect the consistency of phase differences
     # ...for C_xi/C_tau, it will shift all phases by the same amount and phase difference will be entirely unchanged
@@ -871,10 +873,13 @@ def get_N_xi(
         np.abs(f - f0)
     )  # Get index corresponding to your desired f0 estimate
     f0_exact = f[f0_idx]  # Get true f0 target frequency bin center
+    
     colossogram_slice = colossogram[:, f0_idx]  # Get colossogram slice
     # Calculate sigma weights in fits; bigger sigma = less sure about this point
     # So sigma_power <= -1 means weight the low autocoherence bins less and focus on the initial decay more
     sigma = None if sigma_power == 0 else colossogram_slice**sigma_power
+
+    print(f"[FITTING {f0_exact:.0f}Hz AUTOCOHERENCE DECAY]")
 
     # Calculate noise floor and when we've dipped below it
     is_noise, noise_means, noise_stds = get_is_noise(
@@ -911,37 +916,17 @@ def get_N_xi(
             )
             decay_start_idx = maxima[-1]
 
-    "Find decayed index"
-    match stop_fit:
-        case None:
-            decayed_idx = len(xis_s) - 1
-        case "frac":
-            # Find the first time it dips below the fit start value * stop_fit_frac
-            thresh = colossogram_slice[decay_start_idx] * stop_fit_frac
-            # If it never dips below the thresh, we fit out until the end
-            if not np.any(colossogram_slice[decay_start_idx:] <= thresh):
-                print(f"Signal at {f0_exact:.0f}Hz never decays!")
-                decayed_idx = len(xis_s) - 1
-            else:
-                # This index of the first maximum in the array e.g. the first 1 e.g. first dip under thresh
-                first_dip_under_thresh = np.argmax(
-                    colossogram_slice[decay_start_idx:] <= thresh
-                )
-                decayed_idx = first_dip_under_thresh + decay_start_idx
-                # account for the fact that our is_noise array was (temporarily) cropped
-
-        case "noise":
-            # Find first time there is a dip below the noise floor
-            if np.all(~is_noise[decay_start_idx:]):
-                # If it never dips below the noise floor, we fit out until the end
-                print(f"Signal at {f0_exact:.0f}Hz never decays!")
-                decayed_idx = len(xis_s) - 1
-            else:
-                first_dip_under_noise_floor = np.argmax(
-                    is_noise[decay_start_idx:]
-                )  # Returns index of the first maximum in the array e.g. the first 1
-                decayed_idx = first_dip_under_noise_floor + decay_start_idx
-                # account for the fact that our is_noise array was (temporarily) cropped
+    # Calculate the point at which we consider the autocoherence as "fully decayed"
+    decayed_idx = get_decayed_idx(
+        stop_fit,
+        xis_s,
+        decay_start_idx,
+        colossogram_slice,
+        is_noise,
+        f0_exact,
+        stop_fit_frac,
+        verbose=True,
+    )
 
     # Crop arrays now that we have start and end indices
     xis_s_fit_crop = xis_s[decay_start_idx:decayed_idx]
@@ -950,7 +935,7 @@ def get_N_xi(
         sigma = sigma[decay_start_idx:decayed_idx]
 
     # Curve Fit
-    print(f"Fitting exp decay to {f0_exact:.0f}Hz peak")
+    print(f"Fitting...")
 
     # Initialize fitting vars
     failures = 0
@@ -964,41 +949,20 @@ def get_N_xi(
 
     # Continue the fit loop as long as we have xis left and the fit failed OR mse was too big
     while len(xis_s_fit_crop) > trim_step and (popt is None or mse > mse_thresh):
-
         if failures != 0:
             # We just failed, so let's redefine the decay_start_idx and re-find the corresponding decay index
             decay_start_idx = decay_start_idx + trim_step
-            "Find decayed index"
-            match stop_fit:
-                case None:
-                    decayed_idx = len(xis_s) - 1
-                case "frac":
-                    # Find the first time it dips below the fit start value * stop_fit_frac
-                    thresh = colossogram_slice[decay_start_idx] * stop_fit_frac
-                    # If it never dips below the thresh, we fit out until the end
-                    if not np.any(colossogram_slice[decay_start_idx:] <= thresh):
-                        print(f"Signal at {f0_exact:.0f}Hz never decays!")
-                        decayed_idx = len(xis_s) - 1
-                    else:
-                        # This index of the first maximum in the array e.g. the first 1 e.g. first dip under thresh
-                        first_dip_under_thresh = np.argmax(
-                            colossogram_slice[decay_start_idx:] <= thresh
-                        )
-                        decayed_idx = first_dip_under_thresh + decay_start_idx
-                        # account for the fact that our is_noise array was (temporarily) cropped
-
-                case "noise":
-                    # Find first time there is a dip below the noise floor
-                    if np.all(~is_noise[decay_start_idx:]):
-                        # If it never dips below the noise floor, we fit out until the end
-                        print(f"Signal at {f0_exact:.0f}Hz never decays!")
-                        decayed_idx = len(xis_s) - 1
-                    else:
-                        first_dip_under_noise_floor = np.argmax(
-                            is_noise[decay_start_idx:]
-                        )  # Returns index of the first maximum in the array e.g. the first 1
-                        decayed_idx = first_dip_under_noise_floor + decay_start_idx
-                        # account for the fact that our is_noise array was (temporarily) cropped
+            # Recalculate decayed idx
+            decayed_idx = get_decayed_idx(
+                stop_fit,
+                xis_s,
+                decay_start_idx,
+                colossogram_slice,
+                is_noise,
+                f0_exact,
+                stop_fit_frac,
+                verbose=False,
+            )
             # Now we can crop again with these new values
             xis_s_fit_crop = xis_s[decay_start_idx:decayed_idx]
             cgram_slice_fit_crop = colossogram_slice[decay_start_idx:decayed_idx]
@@ -1027,12 +991,9 @@ def get_N_xi(
             mse = np.mean((fitted_exp_decay - cgram_slice_fit_crop) ** 2)
 
             if mse > mse_thresh:
-                print(
-                    f"Fit succeeded, but MSE={mse} > mse_thresh={mse_thresh} — trimming and re-fitting!"
-                )
                 failures += 1
         except (RuntimeError, ValueError) as e:
-            print(f"Fit failed (attempt {failures}): — trimming and re-fitting!")
+            # print(f"Fit failed (attempt {failures}): — trimming and re-fitting!")
             failures += 1
 
     # HAndle case where curve fit fails
@@ -1049,6 +1010,12 @@ def get_N_xi(
         )
         # raise RuntimeError(f"Curve fit failed after all attempts ({freq:.0f}Hz from {wf_fn})")
     else:
+        if failures == 0:
+            print("Fit succeeded on first try!")
+        else:
+            print(
+                f"Fit succeeded after {failures} crops and retries (either from failed fit or because MSE < {mse_thresh})"
+            )
         # Once we're done, get the paramters and standard deviation
         perr = np.sqrt(np.diag(pcov))
         T = popt[0]

@@ -62,6 +62,51 @@ def get_xis_array(xis, fs, hop):
     return xis
 
 
+def get_decayed_idx(
+    stop_fit,
+    xis_s,
+    decay_start_idx,
+    colossogram_slice,
+    is_noise,
+    f0_exact,
+    stop_fit_frac,
+    verbose=False
+):
+    match stop_fit:
+        case None:
+            decayed_idx = len(xis_s) - 1
+        case "frac":
+            # Find the first time it dips below the fit start value * stop_fit_frac
+            thresh = colossogram_slice[decay_start_idx] * stop_fit_frac
+            # If it never dips below the thresh, we fit out until the end
+            if not np.any(colossogram_slice[decay_start_idx:] <= thresh):
+                if verbose: 
+                    print(f"Signal at {f0_exact:.0f}Hz never decays!")
+                decayed_idx = len(xis_s) - 1
+            else:
+                # This index of the first maximum in the array e.g. the first 1 e.g. first dip under thresh
+                first_dip_under_thresh = np.argmax(
+                    colossogram_slice[decay_start_idx:] <= thresh
+                )
+                decayed_idx = first_dip_under_thresh + decay_start_idx
+                # account for the fact that our is_noise array was (temporarily) cropped
+
+        case "noise":
+            # Find first time there is a dip below the noise floor
+            if np.all(~is_noise[decay_start_idx:]):
+                # If it never dips below the noise floor, we fit out until the end
+                if verbose:
+                    print(f"Signal at {f0_exact:.0f}Hz never decays!")
+                decayed_idx = len(xis_s) - 1
+            else:
+                first_dip_under_noise_floor = np.argmax(
+                    is_noise[decay_start_idx:]
+                )  # Returns index of the first maximum in the array e.g. the first 1
+                decayed_idx = first_dip_under_noise_floor + decay_start_idx
+                # account for the fact that our is_noise array was (temporarily) cropped
+    return decayed_idx
+
+
 def get_avg_vector(phase_diffs):
     """Returns magnitude, phase of vector made by averaging over unit vectors with angles given by input phases
 
@@ -162,9 +207,11 @@ def get_tau_zetas(tau_max, xis, zeta, win_type):
     # Start loop
     i = 0
     while tau_zeta < tau_max:
-        tau_zetas[i] = tau_zeta # We've just checked that this tau_zeta < tau_max, so we add it to the list
+        tau_zetas[i] = (
+            tau_zeta  # We've just checked that this tau_zeta < tau_max, so we add it to the list
+        )
         i += 1  # Now we move on to the next xi
-        if i == len(xis): #...unless there are no more
+        if i == len(xis):  # ...unless there are no more
             break
         xi = xis[i]
         # note we'll use the last tau_zeta as a lower bound in the search for the subsequent tau_zeta
@@ -222,6 +269,7 @@ def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
 def exp_decay(x, T, amp):
     return amp * np.exp(-x / T)
 
+
 def exp_decay_fixed_amp(x, T):
     return np.exp(-x / T)
 
@@ -253,11 +301,7 @@ def get_win_meth_str(win_meth, latex=False):
                     else rf"rho={rho}, SR={snapping_rhortle}"
                 )
             except:
-                win_meth_str = (
-                    rf"$\rho={rho}$"
-                    if latex
-                    else rf"rho={rho}"
-                )
+                win_meth_str = rf"$\rho={rho}$" if latex else rf"rho={rho}"
         case "zeta":
             try:
                 zeta = win_meth["zeta"]
@@ -266,7 +310,11 @@ def get_win_meth_str(win_meth, latex=False):
                 raise ValueError(
                     "if doing zeta windowing, win_meth must have keys ['zeta'] and ['win_type']!"
                 )
-            win_meth_str = rf"$\zeta={zeta}$, {win_type.capitalize()}" if latex else rf"zeta={zeta}, {win_type.capitalize()}"
+            win_meth_str = (
+                rf"$\zeta={zeta}$, {win_type.capitalize()}"
+                if latex
+                else rf"zeta={zeta}, {win_type.capitalize()}"
+            )
         case "static":
             try:
                 win_type = win_meth["win_type"]
@@ -289,4 +337,3 @@ def get_N_pd_str(const_N_pd, N_pd_min, N_pd_max):
     else:
         N_pd_str = rf"$N_{{pd}} \in [{N_pd_min}, {N_pd_max}]$"
     return N_pd_str
-

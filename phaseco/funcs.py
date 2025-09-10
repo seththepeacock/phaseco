@@ -195,7 +195,7 @@ def get_autocoherence(
     tau: int,
     nfft: Union[int, None] = None,
     hop: Union[int, None] = None,
-    win_meth: dict = {"method": "rho", "rho": 0.7},
+    win_meth: Union[dict, None] = None,
     N_pd: Union[int, None] = None,
     ref_type: str = "next_seg",
     freq_bin_hop: int = 1,
@@ -233,6 +233,11 @@ def get_autocoherence(
         nfft = (
             tau  # No zero padding (at least, outside of zeta windowing considerations)
         )
+    if win_meth is None:
+        if ref_type == 'next_seg':
+            win_meth = {"method": "rho", "rho": 0.7}
+        else:
+            win_meth = {"method":"static", "win_type":"boxcar"}
 
     # Get window (and possibly redfine tau if doing zeta windowing)
     win, tau_updated = get_win_pc(win_meth, tau, xi, ref_type)
@@ -318,6 +323,7 @@ def get_autocoherence(
             N_bins = len(f)
             # First, do the pw case
             if pw:
+                print("WARNING: CHECK POWER WEIGHTED C_omega IMPLEMENTATION")
                 xy = stft_xi_adv * np.conj(stft)
                 Pxy = np.mean(xy, 0)
                 powers = stft.real**2 + stft.imag**2
@@ -327,7 +333,7 @@ def get_autocoherence(
                 autocoherence = (Pxy.real**2 + Pxy.imag**2) / (Pxx * Pyy)
                 avg_pd = np.angle(Pxy)
 
-            # Now the unweighted way
+            # Now the un-power-weighted way
             else:
                 phases = np.angle(stft)
                 phases_xi_adv = np.angle(stft_xi_adv)
@@ -352,32 +358,47 @@ def get_autocoherence(
         N_segs = stft.shape[0]
         N_bins = len(f)
 
-        phases = np.angle(stft)
-        phase_diffs = np.zeros(
-            (N_segs, N_bins - freq_bin_hop)
-        )  # -freq_bin_hop is because we won't be able to get it for the #(freq_bin_hop) freqs
-        # we'll also need to take the last #(freq_bin_hop) bins off the f
+        # First, do the pw case
+        if pw:
+            xy = stft[:, 0:-freq_bin_hop] * np.conj(stft[:, freq_bin_hop:])
+            Pxy = np.mean(xy, 0)
+            powers = stft.real**2 + stft.imag**2
+            Pxx = np.mean(powers, 0)
+            Pyy = Pxx[freq_bin_hop:] # Shift over freq_bin_hop bins
+            Pxx = Pxx[0:-freq_bin_hop] # Crop Pxx
+            
+            autocoherence = (Pxy.real**2 + Pxy.imag**2) / (Pxx * Pyy)
+            avg_pd = np.angle(Pxy)
+        else:
+            # Now, the un-power-weighted way
+            phases = np.angle(stft)
+            phase_diffs = np.zeros(
+                (N_segs, N_bins - freq_bin_hop)
+            )  # -freq_bin_hop is because we won't be able to get it for the #(freq_bin_hop) freqs
+
+            # calc phase diffs
+            for seg in range(N_segs):
+                for freq_bin in range(N_bins - freq_bin_hop):
+                    phase_diffs[seg, freq_bin] = (
+                        phases[seg, freq_bin + freq_bin_hop] - phases[seg, freq_bin]
+                    )
+
+            # get final autocoherence
+            autocoherence, avg_pd = get_avg_vector(phase_diffs)
+
+        # we'll need to take the last #(freq_bin_hop) bins off the frequency array
         f = f[0:-freq_bin_hop]
-
-        # calc phase diffs
-        for seg in range(N_segs):
-            for freq_bin in range(N_bins - freq_bin_hop):
-                phase_diffs[seg, freq_bin] = (
-                    phases[seg, freq_bin + freq_bin_hop] - phases[seg, freq_bin]
-                )
-
-        # get final autocoherence
-        autocoherence, avg_pd = get_avg_vector(phase_diffs)
-
-        # Since this references each frequency bin to its adjacent neighbor, we'll plot them w.r.t. the average frequency;
-        # this corresponds to shifting everything over half a bin width
-        bin_width = f[1] - f[0]
-        f = f + (bin_width / 2)
+        # Since this references each frequency bin to the one freq_bin_hop bins away, we'll plot them w.r.t. the average frequency;
+        # this corresponds to shifting everything over half the distance between bins
+        freq_ref_distance = f[freq_bin_hop] - f[0]
+        f = f + (freq_ref_distance / 2)
 
         # IMPLEMENT "next freq power weights"
 
-    # or we can reference it against the phase of both the lower and higher frequencies in the same window
+    # or we can reference it against the phase of both the lower and higher frequencies (at the same point in time)
     elif ref_type == "both_freqs":
+        if pw:
+            raise ValueError("Haven't implemented power weights with both_freqs yet!")
         # Get phases
         t, f, stft = get_stft(
             wf=wf,
@@ -447,10 +468,9 @@ def get_autocoherence(
         if return_avg_abs_pd:
             if pw:
                 phase_diffs = np.angle(xy)
-            # This makes the phases in the range [-pi, pi]
+            # Wrap the phases into the range [-pi, pi]
             phase_diffs = (phase_diffs + np.pi) % (2 * np.pi) - np.pi
             # get <|phase diffs|> (note we're taking mean w.r.t. PD axis 0, not frequency axis)
-            print(np.min(phase_diffs), np.max(phase_diffs))
             d["avg_abs_pd"] = np.mean(np.abs(phase_diffs), 0)
         return d
 
@@ -494,7 +514,6 @@ def get_win_pc(
     Returns:
         tuple: (window array, tau)
     """
-
     try:
         method = win_meth["method"]
     except:
@@ -841,6 +860,8 @@ def get_N_xi(
     start_peak_prominence: float = 0.005,
     A_const: bool = False,
     A_max: float = np.inf,
+    bootstrap: bool = False,
+    bs_resample_prop: float = 1.0,
 ) -> Tuple[float, dict]:
     """Fits an exponential decay Ae^(-x/T) to a slice of the colossogram at a given frequency bin f0; returns a dimensionless time constant N_xi = f0*T representing the autocoherence decay timescale (in # cycles)
 
@@ -858,12 +879,12 @@ def get_N_xi(
         start_peak_prominence (float, optional): Prominence threshold for finding the initial peak to start the fit at
         A_const (bool, optional): When enabled, holds the exponential decay (A*e^{-x/T}) function's amplitude fixed at A=1
         A_max (float, optional): Sets the upper bound for the exponential decay (A*e^{-x/T}) function's amplitude A
-
+        bootstrap (bool, optional): Bootstraps fit for a confidence interval.
     Returns:
         tuple: (N_xi, N_xi_dict)
             N_xi_dict contains keys "f", "f0_exact", "colossogram_slice", "N_xi", "N_xi_std", "T", "T_std", "A", "A_std", "mse", "is_noise",
             "decay_start_idx", "decayed_idx", "xis_s", "xis_s_fit_crop", "xis_num_cycles_fit_crop", "xis_num_cycles",
-            "fitted_exp_decay", "noise_means", "noise_stds", "noise_floor_bw_factor"
+            "fitted_exp_decay", "noise_means", "noise_stds", "noise_floor_bw_factor" and (if bootstrap is enabled) "CIs", "avg_delta_CI", "bs_fits"
 
     """
     # Handle default; if none is passed, we'll assume the decay start is within the first 25% of the xis array
@@ -873,7 +894,7 @@ def get_N_xi(
         np.abs(f - f0)
     )  # Get index corresponding to your desired f0 estimate
     f0_exact = f[f0_idx]  # Get true f0 target frequency bin center
-    
+
     colossogram_slice = colossogram[:, f0_idx]  # Get colossogram slice
     # Calculate sigma weights in fits; bigger sigma = less sure about this point
     # So sigma_power <= -1 means weight the low autocoherence bins less and focus on the initial decay more
@@ -1029,7 +1050,8 @@ def get_N_xi(
     N_xi_std = T_std * f0_exact
     xis_num_cycles_fit_crop = xis_s_fit_crop * f0_exact
 
-    return N_xi, {
+    # Make output dict
+    N_xi_fit_dict = {
         "f": f,
         "f0_exact": f0_exact,
         "colossogram_slice": colossogram_slice,
@@ -1052,3 +1074,19 @@ def get_N_xi(
         "noise_stds": noise_stds,
         "noise_floor_bw_factor": noise_floor_bw_factor,
     }
+
+    # Optionally bootstrap for a 95% CI
+    if bootstrap:
+        CIs, avg_delta_CI, bs_fits = bootstrap_fit(
+            xis_s_fit_crop, cgram_slice_fit_crop, bs_resample_prop, A_const, A_max, sigma
+        )
+        # Add to output dict
+        N_xi_fit_dict.update(
+            {
+                'CIs':CIs,
+                'avg_delta_CI':avg_delta_CI,
+                'bs_fits': bs_fits
+            }
+        )
+
+    return N_xi, N_xi_fit_dict

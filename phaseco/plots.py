@@ -37,7 +37,7 @@ def plot_colossogram(xis_s, f, colossogram, pw=True, cmap="magma", return_cbar=F
         return cbar
 
 
-def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floor=True, noise_bin=None, colossogram=None, lw_fit=3, lw_stroke=2, s_signal=10, s_noise=None):
+def plot_N_xi_fit(N_xi_dict, color="#7E051F", bootstrap=False, xaxis_units='sec', plot_noise_floor=True, noise_bin=None, colossogram=None, lw_fit=3, lw_stroke=2, s_signal=10, s_noise=None):
     # Unpack dict
     f                      = N_xi_dict["f"]
     f0_exact               = N_xi_dict["f0_exact"]
@@ -60,6 +60,7 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floo
     noise_means            = N_xi_dict["noise_means"]
     noise_stds             = N_xi_dict["noise_stds"]
     noise_floor_bw_factor  = N_xi_dict['noise_floor_bw_factor']
+
 
     # Plotting parameters
     if s_noise is None:
@@ -160,6 +161,21 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floo
             edgecolors=edgecolor_decayed,
             zorder=3,
         )
+        # Plot the bootstrapped fit
+        if bootstrap:
+            CIs = N_xi_dict["CIs"]
+            avg_delta_CI = N_xi_dict["avg_delta_CI"]
+            plt.fill_between(
+            x_fit_crop,
+            CIs[0],
+            CIs[1],
+            color='purple',
+            alpha=0.3,
+            label=rf'$< \Delta \text{{CI}}>={avg_delta_CI:.3g}$'
+        )
+
+        
+        # Finally, plot the "noise floor"
         noise_floor_bw_factor_str = (
             rf"(\sigma*{noise_floor_bw_factor})"
             if noise_floor_bw_factor != 1
@@ -169,15 +185,17 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floo
             x,
             noise_means,
             label=rf"All Bins $\mu \pm {noise_floor_bw_factor_str}$",
-            color='purple',
+            color='green',
         )
         plt.fill_between(
             x,
             noise_means - noise_stds * noise_floor_bw_factor,
             noise_means + noise_stds * noise_floor_bw_factor,
-            color='purple',
+            color='green',
             alpha=0.3,
         )
+
+        
     if noise_bin is not None:
         if colossogram is None:
             print("You wanted to plot a noise bin on your fit, but you need to pass in the colossogram!")

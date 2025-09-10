@@ -1,6 +1,9 @@
 import numpy as np
 from scipy.signal import get_window
 import time
+from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 
 """
@@ -61,6 +64,27 @@ def get_xis_array(xis, fs, hop):
 
     return xis
 
+def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
+
+    # Get mean and std dev of coherence (over frequency axis, axis=1) for each xi value (using ALL frequencies)
+    noise_means = np.mean(colossogram, axis=1)
+    noise_stds = np.std(
+        colossogram, axis=1, ddof=1
+    )  # ddof=1 since we're using sample mean (not true mean) in sample std estimate
+    # Now for each xi value, see if it's noise by determining if it's less than noise_floor_bw_factor*sigma away from the mean
+    noise_floor = noise_means + noise_floor_bw_factor * noise_stds
+    is_noise = colossogram_slice <= noise_floor
+
+    return is_noise, noise_means, noise_stds
+
+
+def exp_decay(x, T, amp):
+    return amp * np.exp(-x / T)
+
+
+def exp_decay_fixed_amp(x, T):
+    return np.exp(-x / T)
+
 
 def get_decayed_idx(
     stop_fit,
@@ -105,6 +129,70 @@ def get_decayed_idx(
                 decayed_idx = first_dip_under_noise_floor + decay_start_idx
                 # account for the fact that our is_noise array was (temporarily) cropped
     return decayed_idx
+
+def bootstrap_fit(x, y, bs_resample_prop, A_const, A_max, sigma, N_fits=1000):
+    # Check size
+    N_pts = len(y)
+    if len(x) != N_pts:
+        raise ValueError("x and y must have same size!")
+    N_resample = round(N_pts * bs_resample_prop)
+
+    # Allocate matrix for bootstraps
+    bs_fits = np.empty((N_fits, N_pts))
+    CIs = np.empty((2, N_pts))
+    
+    # Bootstrap
+    rng = np.random.default_rng()
+    rnd_idxs = rng.integers(N_pts, size=(N_fits, N_resample))
+
+    
+    # Set initial guesses and bounds
+    p0 = [0.5, 1] if not A_const else [0.5]  # [T0, A0] or [T0]
+    bounds = ([0, 0], [np.inf, A_max]) if not A_const else (0, np.inf)
+    fit_func = exp_decay if not A_const else exp_decay_fixed_amp
+
+    print("Bootstrapping...")
+    for i in tqdm(range((N_fits))):
+        # Get bootstrapped sample
+        x_bs = x[rnd_idxs[i, :]]
+        y_bs = y[rnd_idxs[i, :]]
+
+        # Curve fit as usual
+        popt, pcov = curve_fit(
+                    fit_func,
+                    x_bs,
+                    y_bs,
+                    p0=p0,
+                    sigma=sigma,
+                    bounds=bounds,
+                )
+        
+        # Get the fit and add to matrix
+        bs_fits[i, :] = (
+                exp_decay(x, *popt)
+                if not A_const
+                else exp_decay_fixed_amp(x, *popt)
+            )
+        # plt.close('all')
+        # plt.scatter(x_bs, y_bs, label="BS'd Sample")
+        # plt.plot(x, bs_fits[i, :], label="Fit")
+        # plt.show()
+    
+    # Calculate CIs
+    for j in range(N_pts):
+        bs_fits_j = bs_fits[:, j]
+        CIs[0, j] = np.percentile(bs_fits_j, 2.5)
+        CIs[1, j] = np.percentile(bs_fits_j, 97.5)
+    # Get avg CI width
+    avg_delta_CI = np.mean(CIs[1, :]-CIs[0, :])
+    
+
+    return CIs, avg_delta_CI, bs_fits
+
+
+
+    
+        
 
 
 def get_avg_vector(phase_diffs):
@@ -252,26 +340,7 @@ def get_win_autocorr(win, xi):
         return np.sum(win_0 * win_adv)
 
 
-def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
 
-    # Get mean and std dev of coherence (over frequency axis, axis=1) for each xi value (using ALL frequencies)
-    noise_means = np.mean(colossogram, axis=1)
-    noise_stds = np.std(
-        colossogram, axis=1, ddof=1
-    )  # ddof=1 since we're using sample mean (not true mean) in sample std estimate
-    # Now for each xi value, see if it's noise by determining if it's less than noise_floor_bw_factor*sigma away from the mean
-    noise_floor = noise_means + noise_floor_bw_factor * noise_stds
-    is_noise = colossogram_slice <= noise_floor
-
-    return is_noise, noise_means, noise_stds
-
-
-def exp_decay(x, T, amp):
-    return amp * np.exp(-x / T)
-
-
-def exp_decay_fixed_amp(x, T):
-    return np.exp(-x / T)
 
 
 def get_win_meth_str(win_meth, latex=False):

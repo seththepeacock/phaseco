@@ -56,7 +56,7 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", bootstrap=False, xaxis_units='sec'
     xis_s_fit_crop         = N_xi_dict["xis_s_fit_crop"]
     xis_num_cycles_fit_crop= N_xi_dict["xis_num_cycles_fit_crop"]
     xis_num_cycles         = N_xi_dict["xis_num_cycles"]
-    fitted_exp_decay       = N_xi_dict["fitted_exp_decay"]
+    fitted_decay           = N_xi_dict["fitted_decay"]
     noise_means            = N_xi_dict["noise_means"]
     noise_stds             = N_xi_dict["noise_stds"]
     noise_floor_bw_factor  = N_xi_dict['noise_floor_bw_factor']
@@ -109,7 +109,7 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", bootstrap=False, xaxis_units='sec'
             print("One or more params is infinite!")
         plt.plot(
             x_fit_crop,
-            fitted_exp_decay,
+            fitted_decay,
             color=fit_color,
             label=fit_label,
             lw=lw_fit,

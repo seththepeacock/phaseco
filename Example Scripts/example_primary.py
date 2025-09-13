@@ -19,7 +19,7 @@ t = np.arange(0, T_s, 1 / fs)
 
 # --- Brownian phase noise ---
 dt = 1 / fs
-dphi = np.random.normal(0, np.sqrt(2*D * dt), size=t.shape)
+dphi = np.random.normal(0, np.sqrt(2 * D * dt), size=t.shape)
 phi = np.cumsum(dphi)  # Brownian motion (random walk)
 
 # --- Sinusoid with Brownian phase noise ---
@@ -68,12 +68,12 @@ xi_s = 0.01  # This one I like to define in seconds (that's the _s) and then con
 
 "Windowing method; see get_win_pc() documentation for details"
 # Suggested parameters for rho windowing:
-    # (smoother, but less optimal frequency resolution/spurious autocoherence tradeoff)
-# win_meth = {'method': 'rho', 'rho': 0.07}
+# (smoother, but less optimal frequency resolution/spurious autocoherence tradeoff)
+win_meth = {'method': 'rho', 'rho': 0.07}
 
 # Suggested parameters for zeta windowing:
-    # (zeta=max allowed spurious autocoherence)
-win_meth = {'method': 'zeta', 'zeta': 0.01, 'win_type':'hann'}
+# (zeta=max allowed spurious autocoherence)
+# win_meth = {"method": "zeta", "zeta": 0.01, "win_type": "hann"}
 
 
 # Phase reference type
@@ -83,7 +83,7 @@ ref_type = "next_seg"  # This means we reference the phase to the next segment A
 # Convert to samples
 xi = round(xi_s * fs)
 
-# Calculate autocoherence of waveform with itself
+# Calculate autocoherence of waveform
 f, acoh = pc.get_autocoherence(
     wf, fs, xi, pw, tau, hop=hop, win_meth=win_meth, ref_type=ref_type
 )
@@ -120,7 +120,7 @@ print("Calculating Colossogram:")
 # xis_s, f, colossogram = pc.get_colossogram(wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth)
 # But you can also get a dictionary with extra parameters, like the method_id for plotting
 cgram_dict = pc.get_colossogram(
-    wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth, return_dict=True
+    wf, fs, xis, pw, tau, hop=hop, f0=f0, win_meth=win_meth, return_dict=True
 )
 # Extract desired values from dictionary
 match cgram_dict:
@@ -128,7 +128,7 @@ match cgram_dict:
         "xis_s": xis_s,
         "f": f,
         "colossogram": colossogram,
-        "method_id": method_id # We'll use this in the suptitle
+        "method_id": method_id,  # We'll use this in the suptitle
     }:
         pass
 
@@ -139,7 +139,7 @@ plt.ylim(8, 12)
 plt.title(rf"Colossogram")
 
 # Extract N_xi
-N_xi, fit_dict = pc.get_N_xi(xis_s, f, colossogram, f0)
+N_xi, fit_dict = pc.get_N_xi(cgram_dict, f0)
 
 plt.subplot(2, 2, 4)
 pc.plot_N_xi_fit(fit_dict)

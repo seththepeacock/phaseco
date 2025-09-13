@@ -6,10 +6,22 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 
+
 """
 HELPER FUNCTIONS
 """
 
+# def dft(wf, fs, f0):
+#     """
+#     Calculates a single frequency bin of a DFT
+#     """
+#     twiddle = np.exp(-1j*2*np.pi*(f0 / fs))
+#     acc = 0.0 + 0.0j
+#     osc = 1.0
+#     for x in wf:
+#         acc += x * osc
+#         osc *= twiddle
+#     return acc
 
 def get_xis_array(xis, fs, hop):
     """Helper function to get a xis array from (possibly) a dictionary of values; returns xis and a boolean value saying whether or not delta_xi is constant"""
@@ -81,10 +93,14 @@ def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
 def exp_decay(x, T, amp):
     return amp * np.exp(-x / T)
 
+def gauss_decay(x, T, amp):
+    return amp * np.exp(-(x / T)**2)
+
+def gauss_decay_fixed_amp(x, T):
+    return np.exp(-(x / T)**2)
 
 def exp_decay_fixed_amp(x, T):
     return np.exp(-x / T)
-
 
 def get_decayed_idx(
     stop_fit,

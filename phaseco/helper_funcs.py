@@ -4,6 +4,7 @@ import time
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from phaseco.numba_funcs import *
 
 
 
@@ -11,34 +12,94 @@ from tqdm import tqdm
 HELPER FUNCTIONS
 """
 
-# def dft(wf, fs, f0):
-#     """
-#     Calculates a single frequency bin of a DFT
-#     """
-#     twiddle = np.exp(-1j*2*np.pi*(f0 / fs))
-#     acc = 0.0 + 0.0j
-#     osc = 1.0
-#     for x in wf:
-#         acc += x * osc
-#         osc *= twiddle
-#     return acc
+def magsq(x):
+    return (np.conj(x)*x).real # We can safely ignore the non-real part since 
 
-def get_xis_array(xis, fs, hop):
+
+def exp_decay(x, T, amp):
+    return amp * np.exp(-x / T)
+
+def gauss_decay(x, T, amp):
+    return amp * np.exp(-(x / T)**2)
+
+def gauss_decay_fixed_amp(x, T):
+    return np.exp(-(x / T)**2)
+
+def exp_decay_fixed_amp(x, T):
+    return np.exp(-x / T)
+
+
+def get_avg_vector(phase_diffs):
+    """Returns magnitude, phase of vector made by averaging over unit vectors with angles given by input phases
+
+    Parameters
+    ------------
+        phase_diffs: array
+          array of phase differences (N_pd, N_bins)
+    """
+    Zs = np.exp(1j * phase_diffs)
+    avg_vector = np.mean(Zs, axis=0, dtype=complex)
+    vec_strength = np.abs(avg_vector)
+
+    # finally, output the averaged vector's vector strength and angle with x axis (each a 1D array along the frequency axis)
+    return vec_strength, np.angle(avg_vector)
+    
+
+def get_N_pds(wf_len, tau, hop, fs, xi_min, xi_max=None, const_N_pd=True, global_xi_max_s=None):
+    # Set the max xi that will determine this minimum number of phase diffs
+    # (either max xi within this colossogram, or a global one so it's constant across all colossograms in comparison)
+    if global_xi_max_s is None:
+        if xi_max is None:
+            raise ValueError("Need global_xi_max_s or xi_max!")
+        global_xi_max = xi_max
+    elif not const_N_pd:
+        raise Exception(
+            "Why did you pass a global max xi if you're not holding N_pd constant?"
+        )
+    else:  # Note we deliberately passed in global_xi_max in secs so it can be consistent across samplerates
+        global_xi_max = global_xi_max_s * fs
+
+    # Get the max/min lengths of wf after removing last xi points 
+    eff_len_max = wf_len - xi_min
+    eff_len_min = wf_len - global_xi_max
+
+    # There are int((eff_len-tau)/hop)+1 full tau-segments with a xi reference
+    N_pd_min = int((eff_len_min - tau) / hop) + 1
+    N_pd_max = int((eff_len_max - tau) / hop) + 1
+    N_pd = None  # CTC
+
+    if const_N_pd:
+        # If we're holding it constant, we hold it to the minimum
+        N_pd = N_pd_min
+        # Even though the *potential* N_pd_max is bigger, we just use N_pd_min all the way so this is also the max
+        N_pd_max = N_pd_min  # This way we can return both a min and a max regardless
+    return N_pd, N_pd_min, N_pd_max, global_xi_max
+
+def get_pw_ac_from_stft(stft, stft_xi, return_avg_pd=False):
+    Pxy = np.mean(stft_xi * np.conj(stft), 0)
+    Pxx = np.mean(magsq(stft), 0)
+    Pyy = np.mean(magsq(stft_xi), 0)
+    if return_avg_pd:
+        return magsq(Pxy) / (Pxx * Pyy), np.angle(Pxy)
+    else:
+        return magsq(Pxy) / (Pxx * Pyy)
+
+def get_xis_array(xis_dict, fs, hop):
     """Helper function to get a xis array from (possibly) a dictionary of values; returns xis and a boolean value saying whether or not delta_xi is constant"""
     # Get xis array
     consistent_delta_xi = True
-    if isinstance(xis, dict):
+    if isinstance(xis_dict, dict):
         # Try to get parameters in samples
         try:
-            xi_min = xis["xi_min"]
-            xi_max = xis["xi_max"]
-            delta_xi = xis["delta_xi"]
+            xi_min = xis_dict["xi_min"]
+            xi_max = xis_dict["xi_max"]
+            delta_xi = xis_dict["delta_xi"]
         except KeyError:
             # if not there, try to get in seconds
             try:
-                xi_min = round(xis["xi_min_s"] * fs)
-                xi_max = round(xis["xi_max_s"] * fs)
-                delta_xi = round(xis["delta_xi_s"] * fs)
+                xi_min = round(xis_dict["xi_min_s"] * fs)
+                xi_max = round(xis_dict["xi_max_s"] * fs)
+                delta_xi = round(xis_dict["delta_xi_s"] * fs)
             # If neither are there, raise an error
             except KeyError:
                 raise ValueError(
@@ -58,23 +119,23 @@ def get_xis_array(xis, fs, hop):
             raise ValueError(f"'delta_xi' must be positive. Got delta_xi={delta_xi}")
 
         # Calculate xis
-        xis = np.arange(xi_min, xi_max + 1, delta_xi)
-    elif not isinstance(xis, list) or not isinstance(xis, np.ndarray):
-        raise ValueError(f"xis={xis} must be a dictionary or an array!")
+        xis_dict = np.arange(xi_min, xi_max + 1, delta_xi)
+    elif not isinstance(xis_dict, list) or not isinstance(xis_dict, np.ndarray):
+        raise ValueError(f"xis={xis_dict} must be a dictionary or an array!")
     # Here, we know we just got array of xis; check if we'll be able to turbo boost (if each xi is an int num of segs away)
     else:
-        xi_min = xis[0]
-        xi_max = xis[-1]
-        delta_xi = xis[1] - xis[0]
+        xi_min = xis_dict[0]
+        xi_max = xis_dict[-1]
+        delta_xi = xis_dict[1] - xis_dict[0]
         # Make sure this delta_xi is actually interprzetable as a consistent delta_xi
-        if np.any(np.abs(np.diff(xis) - delta_xi) > 1e-9):
+        if np.any(np.abs(np.diff(xis_dict) - delta_xi) > 1e-9):
             consistent_delta_xi = False
     if consistent_delta_xi and delta_xi == xi_min and xi_min == hop:
         print(
             f"delta_xi=xi_min=hop={hop}, so each xi is an integer num of segs, so we just need a single stft per xi! NICE"
         )
 
-    return xis
+    return xis_dict
 
 def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
 
@@ -90,17 +151,7 @@ def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
     return is_noise, noise_means, noise_stds
 
 
-def exp_decay(x, T, amp):
-    return amp * np.exp(-x / T)
 
-def gauss_decay(x, T, amp):
-    return amp * np.exp(-(x / T)**2)
-
-def gauss_decay_fixed_amp(x, T):
-    return np.exp(-(x / T)**2)
-
-def exp_decay_fixed_amp(x, T):
-    return np.exp(-x / T)
 
 def get_decayed_idx(
     stop_fit,
@@ -146,56 +197,44 @@ def get_decayed_idx(
                 # account for the fact that our is_noise array was (temporarily) cropped
     return decayed_idx
 
-def bootstrap_fit(x, y, bs_resample_prop, A_const, A_max, sigma, N_fits=1000):
+def bootstrap_fit(x, y_bs, p0, bounds, fit_function, sigma):
+    # Get number of bootstraps
+    N_bs = y_bs.shape[0]
+    
     # Check size
-    N_pts = len(y)
-    if len(x) != N_pts:
+    N_xvals = y_bs.shape[1]
+    if len(x) != N_xvals:
         raise ValueError("x and y must have same size!")
-    N_resample = round(N_pts * bs_resample_prop)
 
-    # Allocate matrix for bootstraps
-    bs_fits = np.empty((N_fits, N_pts))
-    CIs = np.empty((2, N_pts))
-    
-    # Bootstrap
-    rng = np.random.default_rng()
-    rnd_idxs = rng.integers(N_pts, size=(N_fits, N_resample))
+    # Allocate matrix for bootstrapped fits
+    bs_fits = np.empty((N_bs, N_xvals))
+    CIs = np.empty((2, N_xvals))
 
-    
-    # Set initial guesses and bounds
-    p0 = [0.5, 1] if not A_const else [0.5]  # [T0, A0] or [T0]
-    bounds = ([0, 0], [np.inf, A_max]) if not A_const else (0, np.inf)
-    fit_func = exp_decay if not A_const else exp_decay_fixed_amp
 
     print("Bootstrapping...")
-    for i in tqdm(range((N_fits))):
-        # Get bootstrapped sample
-        x_bs = x[rnd_idxs[i, :]]
-        y_bs = y[rnd_idxs[i, :]]
-
+    for k in tqdm(range((N_bs))):
+        y_k = y_bs[k, :]
         # Curve fit as usual
-        popt, pcov = curve_fit(
-                    fit_func,
-                    x_bs,
-                    y_bs,
+        popt, _ = curve_fit(
+                    fit_function,
+                    x,
+                    y_k,
                     p0=p0,
                     sigma=sigma,
                     bounds=bounds,
                 )
         
         # Get the fit and add to matrix
-        bs_fits[i, :] = (
-                exp_decay(x, *popt)
-                if not A_const
-                else exp_decay_fixed_amp(x, *popt)
+        bs_fits[k, :] = (
+                fit_function(x, *popt)
             )
         # plt.close('all')
-        # plt.scatter(x_bs, y_bs, label="BS'd Sample")
-        # plt.plot(x, bs_fits[i, :], label="Fit")
+        # plt.scatter(x, y_k, label="BS'd Sample")
+        # plt.plot(x, bs_fits[k, :], label="Fit")
         # plt.show()
     
     # Calculate CIs
-    for j in range(N_pts):
+    for j in range(N_xvals):
         bs_fits_j = bs_fits[:, j]
         CIs[0, j] = np.percentile(bs_fits_j, 2.5)
         CIs[1, j] = np.percentile(bs_fits_j, 97.5)
@@ -208,23 +247,9 @@ def bootstrap_fit(x, y, bs_resample_prop, A_const, A_max, sigma, N_fits=1000):
 
 
     
-        
+    
 
 
-def get_avg_vector(phase_diffs):
-    """Returns magnitude, phase of vector made by averaging over unit vectors with angles given by input phases
-
-    Parameters
-    ------------
-        phase_diffs: array
-          array of phase differences (N_pd, N_bins)
-    """
-    Zs = np.exp(1j * phase_diffs)
-    avg_vector = np.mean(Zs, axis=0, dtype=complex)
-    vec_strength = np.abs(avg_vector)
-
-    # finally, output the averaged vector's vector strength and angle with x axis (each a 1D array along the frequency axis)
-    return vec_strength, np.angle(avg_vector)
 
 
 def get_tau_zeta(tau_min, tau_max, xi, zeta, win_type, verbose=False):

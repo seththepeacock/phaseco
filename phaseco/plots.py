@@ -37,7 +37,7 @@ def plot_colossogram(xis_s, f, colossogram, pw=True, cmap="magma", return_cbar=F
         return cbar
 
 
-def plot_N_xi_fit(N_xi_dict, color="#7E051F", bootstrap=False, xaxis_units='sec', plot_noise_floor=True, noise_bin=None, colossogram=None, lw_fit=3, lw_stroke=2, s_signal=10, s_noise=None):
+def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floor=True, noise_bin=None, colossogram=None, lw_fit=3, lw_stroke=2, s_signal=10, s_noise=None):
     # Unpack dict
     f                      = N_xi_dict["f"]
     f0_exact               = N_xi_dict["f0_exact"]
@@ -162,7 +162,7 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", bootstrap=False, xaxis_units='sec'
             zorder=3,
         )
         # Plot the bootstrapped fit
-        if bootstrap:
+        if "CIs" in N_xi_dict.keys():
             CIs = N_xi_dict["CIs"]
             avg_delta_CI = N_xi_dict["avg_delta_CI"]
             plt.fill_between(
@@ -172,7 +172,8 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", bootstrap=False, xaxis_units='sec'
             color='purple',
             alpha=0.3,
             label=rf'$< \Delta \text{{CI}}>={avg_delta_CI:.3g}$'
-        )
+            )
+            
 
         
         # Finally, plot the "noise floor"

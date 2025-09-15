@@ -116,14 +116,16 @@ xis = {
 
 # Calculate colossogram
 print("Calculating Colossogram:")
-# Here's the simplest way to do it
+
+# Here's the simplest way to do it:
 # xis_s, f, colossogram = pc.get_colossogram(wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth)
+
 # But you can also get a dictionary with extra parameters, like the method_id for plotting
-cgram_dict = pc.get_colossogram(
-    wf, fs, xis, pw, tau, hop=hop, f0=f0, win_meth=win_meth, return_dict=True
+cgram = pc.get_colossogram(
+    wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth, return_dict=True
 )
 # Extract desired values from dictionary
-match cgram_dict:
+match cgram:
     case {
         "xis_s": xis_s,
         "f": f,
@@ -139,7 +141,7 @@ plt.ylim(8, 12)
 plt.title(rf"Colossogram")
 
 # Extract N_xi
-N_xi, fit_dict = pc.get_N_xi(cgram_dict, f0)
+N_xi, fit_dict = pc.get_N_xi(cgram, f0)
 
 plt.subplot(2, 2, 4)
 pc.plot_N_xi_fit(fit_dict)

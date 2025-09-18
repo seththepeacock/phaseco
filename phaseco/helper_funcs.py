@@ -75,14 +75,20 @@ def get_N_pds(wf_len, tau, hop, fs, xi_min, xi_max=None, const_N_pd=True, global
         N_pd_max = N_pd_min  # This way we can return both a min and a max regardless
     return N_pd, N_pd_min, N_pd_max, global_xi_max
 
-def get_pw_ac_from_stft(stft, stft_xi, return_avg_pd=False):
-    Pxy = np.mean(stft_xi * np.conj(stft), 0)
-    Pxx = np.mean(magsq(stft), 0)
-    Pyy = np.mean(magsq(stft_xi), 0)
-    if return_avg_pd:
-        return magsq(Pxy) / (Pxx * Pyy), np.angle(Pxy)
+def get_pw_ac_from_stft(stft, stft_xi, wa=False, return_avg_pd=False):
+    if wa:
+        Pxy = np.mean(stft_xi * np.conj(stft), 0)
+        avg_weights = np.mean(np.abs(stft_xi) * np.abs(stft), 0)
+        return Pxy / avg_weights
     else:
-        return magsq(Pxy) / (Pxx * Pyy)
+        Pxy = np.mean(stft_xi * np.conj(stft), 0)
+        Pxx = np.mean(magsq(stft), 0)
+        Pyy = np.mean(magsq(stft_xi), 0)
+        if return_avg_pd:
+            return magsq(Pxy) / (Pxx * Pyy), np.angle(Pxy)
+        else:
+            return magsq(Pxy) / (Pxx * Pyy)
+        
 
 def get_xis_array(xis_dict, fs, hop):
     """Helper function to get a xis array from (possibly) a dictionary of values; returns xis and a boolean value saying whether or not delta_xi is constant"""

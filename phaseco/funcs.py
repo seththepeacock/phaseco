@@ -140,7 +140,7 @@ def get_stft(
         stft[k, :] = rfft(segmented_wf[k, :], nfft)  # this will zero pad if nfft > tau
 
     # Get time arrays from seg_start_indices
-    t_starts = (np.array(seg_start_indices)) / fs  # Used in phase correction factor
+    t_starts = (np.array(seg_start_indices[0:N_segs])) / fs  # Used in phase correction factor
     t_centers = (
         t_starts + (tau // 2) / fs
     )  # For the returned t array, shift to the window centers
@@ -179,11 +179,10 @@ def get_autocoherence(
     hop: Union[int, None] = None,
     win_meth: Union[dict, None] = None,
     N_pd: Union[int, None] = None,
-    ref_type: str = "next_seg",
+    ref_type: str = "time",
     freq_bin_hop: int = 1,
     return_avg_pd: bool = False,
     return_avg_abs_pd: bool = False,
-    phase_corr: bool = False,  # TEST
     return_dict: bool = False,
 ) -> Union[
     Tuple[NDArray[floating], NDArray[floating]],
@@ -202,8 +201,8 @@ def get_autocoherence(
         hop (int, optional): Hop size between segments.
         win_meth (dict, optional): Windowing method; see get_win_pc() for details.
         N_pd (int, optional): Limits number of phase differences.
-        ref_type (str, optional): Phase reference type ('next_seg', 'next_freq', 'both_freqs').
-        freq_bin_hop (int, optional): Number of frequency bins over to reference phase to for 'next_freq' mode.
+        ref_type (str, optional): Phase reference type ('time', 'freq', 'freqs').
+        freq_bin_hop (int, optional): Number of frequency bins over to reference phase to for ref_type='freq'.
         return_avg_abs_pd (bool, optional): Calculates <|phase diffs|> and adds to output dictionary
         return_dict (bool, optional): If True, returns dictionary with variables 'coherence', 'phase_diffs', 'avg_pd', 'N_pd', 'N_segs', 'f', 'stft', 'tau', 'hop', 'xi', 'fs', 'pw', 'avg_abs_pd'
 
@@ -220,7 +219,7 @@ def get_autocoherence(
             tau  # No zero padding (at least, outside of zeta windowing considerations)
         )
     if win_meth is None:
-        if ref_type == "next_seg":
+        if ref_type == "time":
             win_meth = {"method": "rho", "rho": 0.7}
         else:
             win_meth = {"method": "static", "win_type": "boxcar"}
@@ -228,12 +227,11 @@ def get_autocoherence(
     # Get window (and possibly redfine tau if doing zeta windowing)
     win, tau_updated = get_win_pc(win_meth, tau, xi, ref_type)
 
-    # We only need to correct the phase reference if we're doing xi (next_seg) referencing AND we're returning <|phase_diffs|>
-    # TEST
-    phase_corr = True if return_avg_abs_pd and ref_type == "next_seg" else False
+    # We only need to correct the phase reference if we're doing xi (time) referencing AND we're returning <|phase_diffs|>
+    phase_corr = True if return_avg_abs_pd and ref_type == "time" else False
 
     # we can reference each phase against the phase of the same frequency in the next window:
-    if ref_type == "next_seg":
+    if ref_type == "time":
         # First, check if we can get away with a single STFT; this only works if each xi is an integer number of segment hops away
         xi_nsegs = round(xi / hop)
         # Check if xi / hop is an integer
@@ -329,7 +327,7 @@ def get_autocoherence(
                 autocoherence, avg_pd = get_avg_vector(phase_diffs)
 
     # or we can reference it against the phase of the next frequency in the same window:
-    elif ref_type == "next_freq":
+    elif ref_type == "freq":
         # get phases and initialize array for phase diffs
         t, f, stft = get_stft(
             wf=wf,
@@ -385,9 +383,9 @@ def get_autocoherence(
         # IMPLEMENT "next freq power weights"
 
     # or we can reference it against the phase of both the lower and higher frequencies (at the same point in time)
-    elif ref_type == "both_freqs":
+    elif ref_type == "freqs":
         if pw:
-            raise ValueError("Haven't implemented power weights with both_freqs yet!")
+            raise ValueError("Haven't implemented power weights with freqs yet!")
         # Get phases
         t, f, stft = get_stft(
             wf=wf,
@@ -467,7 +465,7 @@ def get_autocoherence(
 
 
 def get_win_pc(
-    win_meth: dict, tau: int, xi: int, ref_type: str = "next_seg"
+    win_meth: dict, tau: int, xi: int, ref_type: str = "time"
 ) -> Tuple[Union[NDArray[floating], None], int]:
     """
     Generates a window based on the dynamic (or static) windowing method.
@@ -500,7 +498,7 @@ def get_win_pc(
 
         tau (int): Window length in samples.
         xi (int): Length (in samples) to advance copy of signal for phase reference.
-        ref_type (str, optional): Type of phase reference; should be `next_seg` when using a dynamic windowing method.
+        ref_type (str, optional): Type of phase reference; should be `time` when using a dynamic windowing method.
 
     Returns:
         tuple: (window array, tau)
@@ -515,9 +513,9 @@ def get_win_pc(
     # First, handle dynamic windows
     if method in ["rho", "zeta"]:
         # Make sure our ref_type is appropriate
-        if ref_type != "next_seg":
+        if ref_type != "time":
             raise ValueError(
-                f"You passed in a dynamic windowing method ({method} windowing) but you're using a {ref_type} reference; this was designed for next_seg!"
+                f"You passed in a dynamic windowing method ({method} windowing) but you're using a {ref_type} reference; this was designed for time!"
             )
 
         if method == "rho":
@@ -1138,11 +1136,11 @@ def get_N_xi(
             f0_bs_idx = np.argmin(
                 np.abs(f0s_bs - f0)
             )  # Get index in the cgram_bs corresponding to the peak at hand
-            f0s_bs_exact = f0s_bs[f0_bs_idx]
+            f0_bs = f0s_bs[f0_bs_idx]
             # Double check, this "exact" bin center should align with the earlier one from the full f array
-            if np.abs(f0s_bs_exact - f0_exact) > 1:
-                raise ValueError(
-                    f"The frequency in your f0s_bs is {f0s_bs_exact} but in the full frequency array it's {f0_exact}..."
+            if np.abs(f0_bs - f0_exact) > 5:
+                print(
+                    f"The freq center in your bootstrapped colossogram is {f0_bs} but in the full frequency array it's {f0_exact}..."
                 )
 
             # Extract slice (maintaining all bootstraps) from cgram

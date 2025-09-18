@@ -77,8 +77,8 @@ win_meth = {'method': 'rho', 'rho': 0.07}
 
 
 # Phase reference type
-ref_type = "next_seg"  # This means we reference the phase to the next segment AKA C_xi
-# other option is 'next_freq' for neighboring freq bin AKA C_omega
+ref_type = "time"  # This means we reference the phase to an earlier point in time AKA C_xi
+# other option is 'freq' for neighboring freq bin AKA C_omega
 
 # Convert to samples
 xi = round(xi_s * fs)

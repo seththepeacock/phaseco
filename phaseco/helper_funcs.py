@@ -29,20 +29,22 @@ def exp_decay_fixed_amp(x, T):
     return np.exp(-x / T)
 
 
-def get_avg_vector(phase_diffs):
+def get_avg_vector(phases, return_angle=True):
     """Returns magnitude, phase of vector made by averaging over unit vectors with angles given by input phases
 
     Parameters
     ------------
-        phase_diffs: array
+        pds: array
           array of phase differences (N_pd, N_bins)
     """
-    Zs = np.exp(1j * phase_diffs)
-    avg_vector = np.mean(Zs, axis=0, dtype=complex)
+    avg_vector = np.mean(np.exp(1j * phases), axis=0, dtype=complex)
     vec_strength = np.abs(avg_vector)
 
     # finally, output the averaged vector's vector strength and angle with x axis (each a 1D array along the frequency axis)
-    return vec_strength, np.angle(avg_vector)
+    if return_angle:
+        return vec_strength, np.angle(avg_vector)
+    else: 
+        return vec_strength
     
 
 def get_N_pds(wf_len, tau, hop, fs, xi_min, xi_max=None, const_N_pd=True, global_xi_max_s=None):
@@ -75,22 +77,59 @@ def get_N_pds(wf_len, tau, hop, fs, xi_min, xi_max=None, const_N_pd=True, global
         N_pd_max = N_pd_min  # This way we can return both a min and a max regardless
     return N_pd, N_pd_min, N_pd_max, global_xi_max
 
-def get_pw_ac_from_stft(stft, stft_xi, wa=False, return_avg_pd=False):
-    if wa:
-        Pxy = np.mean(stft_xi * np.conj(stft), 0)
-        avg_weights = np.mean(np.abs(stft_xi) * np.abs(stft), 0)
-        return Pxy / avg_weights
-    else:
-        Pxy = np.mean(stft_xi * np.conj(stft), 0)
-        Pxx = np.mean(magsq(stft), 0)
-        Pyy = np.mean(magsq(stft_xi), 0)
-        if return_avg_pd:
-            return magsq(Pxy) / (Pxx * Pyy), np.angle(Pxy)
+def get_avg_abs_pd(pds, ref_type):
+    if ref_type=='time':
+        # Wrap the phases into the range [-pi, pi]
+        pds = (pds + np.pi) % (2 * np.pi) - np.pi
+    # get <|phase diffs|> (note we're taking mean w.r.t. PD axis 0, not frequency axis)
+    return np.mean(np.abs(pds), 0)
+    
+def get_ac_from_stft(stft_0, stft_xi, pw, wa=False, return_pd=False):
+    pd_dict = {}  # This will pass through empty if not return_pd
+
+    # Universals
+    xy = stft_xi * np.conj(stft_0)
+    # Powerweighted (C_xi)
+    if pw:
+        # Calculate coherence
+        Pxy = np.mean(xy, 0)
+        if wa:
+            avg_weights = np.mean(np.abs(stft_xi) * np.abs(stft_0), 0)
+            autocoherence = Pxy / avg_weights
         else:
-            return magsq(Pxy) / (Pxx * Pyy)
+            Pxx = np.mean(magsq(stft_0), 0)
+            Pyy = np.mean(magsq(stft_xi), 0)
+            autocoherence = magsq(Pxy) / (Pxx * Pyy)
+            if return_pd:
+                pds = np.angle(Pxy)
+                avg_pd = np.angle(np.mean(np.exp(1j * pds), 0, dtype=complex))
+
+    # Non powerweighted (C_xi^phi)
+    else:
+        # Normalize for unit vectors
+        xy_norm = xy / np.abs(xy)
+        # Get average unit vector
+        avg_xy_norm = np.mean(xy_norm, axis=0)
+        # Take vector strength for autocoherence 
+        autocoherence = np.abs(avg_xy_norm)
+        if return_pd:
+            # Calculate the angle of the average unit vector
+            avg_pd = np.angle(avg_xy_norm)
+
+    # Add various pd things if requested
+    if return_pd:
+        pd_dict["pds"] = pds
+        pd_dict["avg_pd"] = avg_pd
+        # Calculate phase diffs
+        pds = np.angle(xy)
+        pd_dict["avg_abs_pd"] = get_avg_abs_pd(pds, ref_type="time")
+
+    return autocoherence, pd_dict  # Latter two arguments are possibly None
         
 
-def get_xis_array(xis_dict, fs, hop):
+
+
+def get_xis_array(xis_dict, fs, hop=1):
     """Helper function to get a xis array from (possibly) a dictionary of values; returns xis and a boolean value saying whether or not delta_xi is constant"""
     # Get xis array
     consistent_delta_xi = True
@@ -409,15 +448,11 @@ def get_win_meth_str(win_meth, latex=False):
                 raise ValueError(
                     "if doing rho windowing, win_meth must have key ['rho']!"
                 )
-            try:
-                snapping_rhortle = win_meth["snapping_rhortle"]
-                win_meth_str = (
-                    rf"$\rho={rho}$, SR={snapping_rhortle}"
-                    if latex
-                    else rf"rho={rho}, SR={snapping_rhortle}"
-                )
-            except:
-                win_meth_str = rf"$\rho={rho}$" if latex else rf"rho={rho}"
+            win_meth_str = rf"$\rho={rho}$" if latex else rf"rho={rho}"
+            if "win_type" in win_meth.keys():
+                win_meth_str += rf", {win_meth['win_type'].capitalize()}"
+            if "snapping_rhortle" in win_meth.keys():
+                win_meth_str += rf", SR={win_meth["snapping_rhortle"]}"
         case "zeta":
             try:
                 zeta = win_meth["zeta"]

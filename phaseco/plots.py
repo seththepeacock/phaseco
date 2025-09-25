@@ -18,6 +18,9 @@ def plot_colossogram(xis_s, f, colossogram, pw=True, cmap="magma", return_cbar=F
     if xx.shape[0] != colossogram.shape[0]:
         colossogram = colossogram.T
 
+    if not pw:
+        colossogram = colossogram ** 2
+
     # plot the heatmap
     vmin = 0
     vmax = 1
@@ -26,7 +29,7 @@ def plot_colossogram(xis_s, f, colossogram, pw=True, cmap="magma", return_cbar=F
     )
 
     # get and set label for cbar
-    cbar_label = r'$C_\xi$' if pw else r'$C_\xi^\phi$'
+    cbar_label = r'$C_\xi$' if pw else r'$(C_\xi^\phi)^2$'
     cbar = plt.colorbar(heatmap)
     cbar.set_label(cbar_label, labelpad=30)
 
@@ -202,7 +205,7 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floo
             print("You wanted to plot a noise bin on your fit, but you need to pass in the colossogram!")
         noise_bin_idx = np.argmin(np.abs(f-noise_bin))
         noise_bin_exact = f[noise_bin_idx]
-        plt.pscatter(
+        plt.scatter(
             xis_num_cycles,
             colossogram[noise_bin_exact, :],
             label=f"Noise Bin ({noise_bin_exact/1000:.0f}kHz)",
@@ -211,6 +214,7 @@ def plot_N_xi_fit(N_xi_dict, color="#7E051F", xaxis_units='sec', plot_noise_floo
 
     # Finish plot
     plt.xlabel(xlabel)
-    plt.ylabel(r"$C_{\xi}$")
+    ylabel = r'$C_\xi$' if N_xi_dict['pw'] else r'$(C_\xi^\phi)^2$'
+    plt.ylabel(ylabel)
     plt.ylim(0, 1)
     plt.legend()

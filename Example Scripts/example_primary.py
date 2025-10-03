@@ -73,7 +73,7 @@ win_meth = {'method': 'rho', 'rho': 0.07}
 
 # Suggested parameters for zeta windowing:
 # (zeta=max allowed spurious autocoherence)
-# win_meth = {"method": "zeta", "zeta": 0.01, "win_type": "hann"}
+# win_meth = {"method": "zeta", "zeta": 0.1, "win_type": "hann"}
 
 
 # Phase reference type

@@ -4,7 +4,6 @@ import time
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from phaseco.numba_funcs import *
 
 
 
@@ -95,11 +94,11 @@ def get_ac_from_stft(stft_0, stft_xi, pw, wa=False, return_pd=False):
         Pxy = np.mean(xy, 0)
         if wa:
             avg_weights = np.mean(np.abs(stft_xi) * np.abs(stft_0), 0)
-            autocoherence = Pxy / avg_weights
+            autocoherence = np.sqrt(Pxy / avg_weights)
         else:
             Pxx = np.mean(magsq(stft_0), 0)
             Pyy = np.mean(magsq(stft_xi), 0)
-            autocoherence = magsq(Pxy) / (Pxx * Pyy)
+            autocoherence = np.sqrt(magsq(Pxy) / (Pxx * Pyy))
             if return_pd:
                 pds = np.angle(Pxy)
                 avg_pd = np.angle(np.mean(np.exp(1j * pds), 0, dtype=complex))
@@ -224,7 +223,7 @@ def get_decayed_idx(
                 first_dip_under_thresh = np.argmax(
                     colossogram_slice[decay_start_idx:] <= thresh
                 )
-                decayed_idx = first_dip_under_thresh + decay_start_idx
+                decayed_idx = first_dip_under_thresh + decay_start_idx  
                 # account for the fact that our is_noise array was (temporarily) cropped
 
         case "noise":
@@ -314,10 +313,11 @@ def get_tau_zeta(tau_min, tau_max, xi, zeta, win_type, verbose=False):
         win_type: str
             used in scipy.signal.get_window()
     """
+    if zeta == 0:
+        return xi
+    
+    
     left = tau_min
-    # TEST
-    if get_exp_spur_coh(left, xi, win_type) >= zeta:
-        raise ValueError("HUH")
 
     # Exponential search for an upper bound
     right = left + 1
@@ -405,16 +405,17 @@ def get_tau_zetas(tau_max, xis, zeta, win_type):
     return tau_zetas
 
 
-def get_exp_spur_coh(tau, xi, win_type):
-    """Returns the expected spurious coherence for this window at this xi value
+def get_exp_spur_coh(tau, xi, win):
+    """Returns the expected spurious coherence (power weighted C_xi^P) for this window at this xi value
 
     Parameters
     ------------
     """
-    win = get_window(win_type, tau)
+    if isinstance(win, str):
+        win = get_window(win, tau)
     R_w_0 = get_win_autocorr(win, 0)
     R_w_xi = get_win_autocorr(win, xi)
-    return (R_w_xi / R_w_0) ** 2
+    return R_w_xi / R_w_0
 
 
 def get_win_autocorr(win, xi):

@@ -3,7 +3,6 @@ from typing import Union, Tuple, Dict, Optional
 from numpy.typing import NDArray
 from numpy import floating, complexfloating
 from phaseco.helper_funcs import *
-from phaseco.numba_funcs import *
 from scipy.signal import get_window, find_peaks
 from scipy.fft import rfft, rfftfreq, fftshift, fftfreq, fft
 from scipy.optimize import curve_fit
@@ -58,11 +57,11 @@ def get_stft(
     # Handle defaults
     if hop is None:
         hop = tau // 2
-    elif hop < 1:
-        hop = round(tau * hop)
-    elif type(hop) is not int:
+    elif hop <= 1 and type(hop) is not int:
+        hop = int(round(tau * hop))
+    elif type(hop) is not int or hop <= 0:
         raise ValueError(
-            "hop must be either an int or 0 < hop < 1 for proportion of tau!"
+            "hop must be either a positive int or 0 < hop < 1 for proportion of tau!"
         )
     if nfft is None:
         nfft = tau
@@ -251,9 +250,13 @@ def get_autocoherence(
 
     # Handle defaults
     if hop is None:
-        hop = tau // 2  # 50% overlap
-    elif hop < 1:
-        hop = round(hop * tau)
+        hop = tau // 2
+    elif hop <= 1 and type(hop) is not int:
+        hop = int(round(tau * hop))
+    elif type(hop) is not int or hop <= 0:
+        raise ValueError(
+            "hop must be either a positive int or 0 < hop < 1 for proportion of tau!"
+        )
 
     if win_meth is None:
         if ref_type == "time":
@@ -357,7 +360,7 @@ def get_autocoherence(
             Pxx = np.mean(magsq(stft), 0)
             Pyy = Pxx[freq_bin_hop:]  # Shift over freq_bin_hop bins
             Pxx = Pxx[0:-freq_bin_hop]  # Crop Pxx
-            autocoherence = magsq(Pxy) / (Pxx * Pyy)
+            autocoherence = np.sqrt(magsq(Pxy) / (Pxx * Pyy))
             if return_pd:
                 pds = np.angle(Pxy)
 
@@ -541,8 +544,8 @@ def get_win(
                 win = get_window(("gaussian", sigma), tau)
             # Check if we're changing the asymptotic window from a boxcar to something else
             if 'win_type' in win_meth.keys():
-                asym_window = get_window(win_meth['win_type'], tau)
-                win = win * asym_window
+                asymp_window = get_window(win_meth['win_type'], tau)
+                win = win * asymp_window
 
             tau_updated = tau  # Doesn't change
         else:  # here, method == 'zeta' necessarily
@@ -578,7 +581,7 @@ def get_colossogram(
     tau: int,
     nfft: Union[int, None] = None,
     hop: Union[int, float] = 0.5,
-    win_meth: dict = {"method": "zeta", "zeta": 0.01, "win_type": "hann"},
+    win_meth: dict = {"method": "rho", "rho": 1.0, "win_type": "flattop"},
     const_N_pd: bool = False,
     global_xi_max_s: Union[float, None] = None,
     N_bs: int = 0,
@@ -613,8 +616,12 @@ def get_colossogram(
         raise ValueError("Must return_dict if bootstrapping!")
 
     # Check if hop was passed as a proportion
-    if hop < 1:
-        hop = round(hop * tau)
+    if hop <= 1 and type(hop) is not int:
+        hop = int(round(tau * hop))
+    elif type(hop) is not int or hop <= 0:
+        raise ValueError(
+            "hop must be either a positive int or 0 < hop < 1 for proportion of tau!"
+        )
 
     # Deal with nfft
     if nfft is None:
@@ -677,7 +684,7 @@ def get_colossogram(
     )  # This will also check that our win_meth was passed correctly
     # method_id = rf"[{win_meth_str}]   [$\tau$={tau_s*1000:.2f}ms]   [$\xi_{{\text{{max}}}}={xis_s[-1]*1000:.0f}$ms]   [Hop={(hop_s)*1000:.0f}ms]   [{N_pd_str}]"
     hop_prop = hop / tau
-    method_id = rf"[$\tau$={tau_s*1000:.2f}ms]   [{win_meth_str}]   [Hop={(hop_prop):.2g}$\tau$]   [{N_pd_str}]   [nfft={nfft}]"
+    method_id = rf"[$\tau$={tau_s*1000:.2f}ms]   [PW={pw}]   [{win_meth_str}]   [Hop={(hop_prop):.2g}$\tau$]   [{N_pd_str}]   [nfft={nfft}]"
     
     # Set function
     "Loop through xis and calculate colossogram"
@@ -689,9 +696,6 @@ def get_colossogram(
                 "Bootstrapping hasn't been implemented yet for zeta windowing!"
             )
         # In this case, we'll calculate the windows all at once since it's more efficient that way
-        og_tau = (
-            tau  # redefine this for clarity since we'll be changing tau from xi to xi
-        )
         zeta = win_meth[
             "zeta"
         ]  # Note win_meth must have these keys because get_win_meth_str went through
@@ -717,7 +721,7 @@ def get_colossogram(
                 tau=current_tau_zeta,  # Pass in current tau_zeta
                 pw=pw,
                 xi=xi,
-                nfft=og_tau,  # Will do zero padding to get up to og tau
+                nfft=nfft,  # Will do zero padding to get up to nfft
                 hop=hop,
                 win_meth=static_win_meth,  # Tells it to get a window of the specified type with length current_tau_zeta
                 N_pd=N_pd,
@@ -859,8 +863,12 @@ def get_colossogram(
                 "win_meth": win_meth,
                 "global_xi_max": global_xi_max,
                 "method_id": method_id,
+                "pw":pw,
             }
         )
+        # Throw this in to differentiate from old pickles
+        if pw:
+            d["unsquared_pw"] = True
         return d
     else:
         return xis_s, f, colossogram
@@ -945,14 +953,13 @@ def get_N_xi(
     mse_thresh: float = np.inf,
     fit_func: str = "exp",
     start_fit_frac: float = 0.9,
-    stop_fit: str = None,
+    stop_fit: str = 'frac',
     stop_fit_frac: float = 0.1,
     noise_floor_bw_factor: float = 1,
     sigma_power: int = 0,
     start_peak_prominence: float = 0.005,
     A_const: bool = False,
     A_max: float = np.inf,
-    pw: bool = True,
 ) -> Tuple[float, dict]:
     """Fits a decay function to a slice of the colossogram at a given frequency bin f0; returns a dimensionless time constant N_xi = f0*T representing the autocoherence decay timescale (in # cycles)
 
@@ -983,7 +990,7 @@ def get_N_xi(
         raise ValueError(
             "'cgram' dictionary parameter needs keys 'xis_s', 'f', and 'colossogram'"
         )
-
+    pw = cgram['pw']
     # Handle default; if none is passed, we'll assume the decay start is within the first 25% of the xis array
     if decay_start_limit_xi_s is None:
         decay_start_limit_xi_s = xis_s[len(xis_s) // 4]
@@ -993,10 +1000,6 @@ def get_N_xi(
     f0_exact = f[f0_bs_idx]  # Get true f0 target frequency bin center
 
     colossogram_slice = colossogram[:, f0_bs_idx]  # Get colossogram slice
-
-    # Make this align with C_xi
-    if not pw:
-        colossogram_slice = colossogram_slice ** 2
 
     # Calculate sigma weights in fits; bigger sigma = less sure about this point
     # So sigma_power <= -1 means weight the low autocoherence bins less and focus on the initial decay more
@@ -1051,15 +1054,16 @@ def get_N_xi(
         verbose=True,
     )
 
-    # Update decayed index
-    if stop_fit_frac != 1.0:
+    # Update start decay 
+    if start_fit_frac != 1.0:
         # Find the first time it dips below the fit start value * start_fit_frac
         thresh = colossogram_slice[decay_start_idx] * start_fit_frac
         # If it never dips below the thresh, we raise an error (this shouldn't happen)
         if not np.any(colossogram_slice[decay_start_idx:] <= thresh):
-            raise RuntimeError(
-                f"Decay at {f0_exact:.0f}Hz never gets to {stop_fit_frac} of original peak value!"
+            print(
+                f"Decay at {f0_exact:.0f}Hz never gets to {start_fit_frac} of original peak value!"
             )
+        
         else:
             # This index of the first maximum in the array e.g. the first 1 e.g. first dip under thresh
             first_dip_under_thresh = np.argmax(
@@ -1227,7 +1231,7 @@ def get_N_xi(
 
             # Extract slice (maintaining all bootstraps) from cgram
             cgram_slice_fit_crop_bs = cgram_bs[
-                :, decay_start_idx:decayed_idx, f0_bs_idx
+                :, decay_start_idx:decayed_idx+1, f0_bs_idx
             ]  # (bootstraps, cropped xi axis)
             CIs, avg_delta_CI, bs_fits = bootstrap_fit(
                 xis_s_fit_crop, cgram_slice_fit_crop_bs, p0, bounds, fit_function, sigma

@@ -239,4 +239,4 @@ def plot_N_xi_fit(
     plt.ylim(0, 1)
     if zoom_to_fit:
         plt.xlim(xis_s[0]*1000, xis_s[decayed_idx]*1000+10)
-    plt.legend()
+    plt.legend(loc='upper right')

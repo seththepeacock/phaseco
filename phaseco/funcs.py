@@ -124,7 +124,9 @@ def get_stft(
 
     # Get segmented waveform matrix
 
-    segmented_wf = np.empty((N_segs, tau))
+    segmented_wf = np.empty(
+        (N_segs, tau), dtype=complex if isinstance(wf[0], complex) else float
+    )
     for k in range(N_segs):
         # grab the waveform in this segment
         seg_start = seg_start_indices[k]
@@ -543,8 +545,8 @@ def get_win(
                 sigma = desired_fwhm / (2 * np.sqrt(2 * np.log(2)))
                 win = get_window(("gaussian", sigma), tau)
             # Check if we're changing the asymptotic window from a boxcar to something else
-            if 'win_type' in win_meth.keys():
-                asymp_window = get_window(win_meth['win_type'], tau)
+            if "win_type" in win_meth.keys():
+                asymp_window = get_window(win_meth["win_type"], tau)
                 win = win * asymp_window
 
             tau_updated = tau  # Doesn't change
@@ -608,7 +610,7 @@ def get_colossogram(
         return_dict (bool, optional): If True, returns full dictionary with keys 'xis', 'xis_s', 'f', 'colossogram', 'tau', 'fs', 'N_pd_min', 'N_pd_max', 'hop', 'win_meth', 'global_xi_max'
 
     Returns:
-        tuple: (f, autocoherence) unless return_dict is True
+        tuple: (xis_s, f, colossogram) unless return_dict is True
     """
     if return_dict:
         d = {}  # Initialize return dict
@@ -685,7 +687,7 @@ def get_colossogram(
     # method_id = rf"[{win_meth_str}]   [$\tau$={tau_s*1000:.2f}ms]   [$\xi_{{\text{{max}}}}={xis_s[-1]*1000:.0f}$ms]   [Hop={(hop_s)*1000:.0f}ms]   [{N_pd_str}]"
     hop_prop = hop / tau
     method_id = rf"[$\tau$={tau_s*1000:.2f}ms]   [PW={pw}]   [{win_meth_str}]   [Hop={(hop_prop):.2g}$\tau$]   [{N_pd_str}]   [nfft={nfft}]"
-    
+
     # Set function
     "Loop through xis and calculate colossogram"
 
@@ -731,46 +733,64 @@ def get_colossogram(
         # Add to output dict
         if return_dict:
             d["tau_zetas"] = tau_zetas
-    # Handle the turbo boost (single-stft) AND static windowing case
-    elif (
-        win_meth["method"] == "static"
-        and xi_min == hop
-        and xi_min == delta_xi
-        and not const_N_pd
-    ):
-        print("...and static windowing means we can turbo-turbo boost!")
-        # Here we can do all xis with a single STFT, assuming all xis are integer multiples of hop
-        if not pw:
-            raise RuntimeError(
-                "Haven't implemented non-pw turbo-turbo boosted colossogram!"
-            )
-
-        stft = get_stft(
+    # Handle static windowing case
+    elif win_meth["method"] == "static":
+        # Get first stft
+        stft_0 = get_stft(
             wf,
             fs=fs,
             tau=tau,
             nfft=nfft,
             hop=hop,
-            N_segs=N_pd,
+            N_segs=N_pd if const_N_pd else None, # If const_N_pd this has been pre-calc'd
             win=get_window(win_meth["win_type"], tau),
             f0s=f0s,
             return_dict=False,
         )[-1]
+        # handle the turbo boost (single-stft) AND static windowing case
+        if xi_min == hop and xi_min == delta_xi and not const_N_pd:
+            print("...and static windowing means we can turbo-turbo boost!")
+            # Here we can do all xis with a single STFT, assuming all xis are integer multiples of hop
+            for xi_idx, xi in enumerate(tqdm(xis)):
+                # Check if xi / hop is an integer (should be guaranteed by xi_min==hop==delta_xi)
+                xi_nsegs = round(xi / hop)
+                non_int_part = np.abs(xi_nsegs - (xi / hop))
+                if non_int_part > 1e-12:
+                    raise ValueError("xi_nsegs is not an integer")
+                stft_k_0 = stft_0[0:-xi_nsegs]
+                stft_k_xi = stft_0[xi_nsegs:]
+                colossogram[xi_idx, :] = get_ac_from_stft(
+                    stft_k_0, stft_k_xi, pw, wa=wa, return_pd=False
+                )[
+                    0
+                ]  # Single output
 
-        for xi_idx, xi in enumerate(tqdm(xis)):
-            # Check if xi / hop is an integer
-            xi_nsegs = round(xi / hop)
-            non_int_part = np.abs(xi_nsegs - (xi / hop))
-            if non_int_part > 1e-12:
-                raise ValueError("xi_nsegs is not an integer")
-            stft_k_0 = stft[0:-xi_nsegs]
-            stft_k_xi = stft[xi_nsegs:]
-            colossogram[xi_idx, :] = get_ac_from_stft(
-                stft_k_0, stft_k_xi, pw, wa=wa, return_pd=False
-            )[
-                0
-            ]  # Single output
-    # ALL OTHER WINDOWING
+        else:  # Standard static window case
+            # Get this window
+            win = get_window(win_meth["win_type"], tau)
+            for xi_idx, xi in enumerate(tqdm(xis)):
+                # Calculate N_pd (assuming we're not holding it constant, in which case it was already done outside of loop)
+                if not const_N_pd:
+                    # This is just as many segments as we possibly can with the current xi reference
+                    N_pd = int(((len(wf) - xi) - tau) / hop) + 1
+                # Calculate xi-advanced stft
+                stft_k_xi = get_stft(
+                    wf[xi:],
+                    fs=fs,
+                    tau=tau,
+                    nfft=nfft,
+                    hop=hop,
+                    N_segs=N_pd,
+                    win=win,
+                    f0s=f0s,
+                    return_dict=False,
+                )[-1]
+                stft_k_0 = stft_0[0:N_pd]
+                colossogram[xi_idx, :] = get_ac_from_stft(
+                    stft_k_0, stft_k_xi, pw, wa=wa, return_pd=False
+                )[0]  # Single output
+
+    # Rho windowing case
     else:
         # Non-bootstrapping case
         if N_bs == 0:
@@ -806,8 +826,7 @@ def get_colossogram(
                 # Calculate N_pd (assuming we're not holding it constant, in which case it was already done outside of loop)
                 if not const_N_pd:
                     # This is just as many segments as we possibly can with the current xi reference
-                    eff_len = len(wf) - xi
-                    N_pd = int((eff_len - tau) / hop) + 1
+                    N_pd = int(((len(wf) - xi) - tau) / hop) + 1
                 # Get stft (we'll assume we can't 'turbo boost' with a single stft)
                 stft_0 = get_stft(
                     wf[0:-xi],
@@ -832,7 +851,9 @@ def get_colossogram(
                 # Calculate the standard colossogram
                 colossogram[xi_idx, :] = get_ac_from_stft(
                     stft_0, stft_xi, pw, wa=wa, return_pd=False
-                )[0] # Ignore the second output (an empty dict)
+                )[
+                    0
+                ]  # Ignore the second output (an empty dict)
                 # Bootstrap colossogram
                 bs_idxs = rng.integers(N_pd, size=(N_bs, N_pd))
                 for k in range(N_bs):
@@ -841,7 +862,9 @@ def get_colossogram(
                     stft_xi_bs = stft_xi[np.ix_(seg_idxs, f0_idxs)]
                     colossogram_bs[k, xi_idx, :] = get_ac_from_stft(
                         stft_0_bs, stft_xi_bs, pw, wa=wa, return_pd=False
-                    )[0] # Ignore the second output (an empty dict)
+                    )[
+                        0
+                    ]  # Ignore the second output (an empty dict)
                 # Add to output dict
                 d["colossogram_bs"] = colossogram_bs
 
@@ -863,7 +886,7 @@ def get_colossogram(
                 "win_meth": win_meth,
                 "global_xi_max": global_xi_max,
                 "method_id": method_id,
-                "pw":pw,
+                "pw": pw,
             }
         )
         # Throw this in to differentiate from old pickles
@@ -953,7 +976,7 @@ def get_N_xi(
     mse_thresh: float = np.inf,
     fit_func: str = "exp",
     start_fit_frac: float = 0.9,
-    stop_fit: str = 'frac',
+    stop_fit: str = "frac",
     stop_fit_frac: float = 0.1,
     noise_floor_bw_factor: float = 1,
     sigma_power: int = 0,
@@ -990,7 +1013,7 @@ def get_N_xi(
         raise ValueError(
             "'cgram' dictionary parameter needs keys 'xis_s', 'f', and 'colossogram'"
         )
-    pw = cgram['pw']
+    pw = cgram["pw"]
     # Handle default; if none is passed, we'll assume the decay start is within the first 25% of the xis array
     if decay_start_limit_xi_s is None:
         decay_start_limit_xi_s = xis_s[len(xis_s) // 4]
@@ -1054,7 +1077,7 @@ def get_N_xi(
         verbose=True,
     )
 
-    # Update start decay 
+    # Update start decay
     if start_fit_frac != 1.0:
         # Find the first time it dips below the fit start value * start_fit_frac
         thresh = colossogram_slice[decay_start_idx] * start_fit_frac
@@ -1063,7 +1086,7 @@ def get_N_xi(
             print(
                 f"Decay at {f0_exact:.0f}Hz never gets to {start_fit_frac} of original peak value!"
             )
-        
+
         else:
             # This index of the first maximum in the array e.g. the first 1 e.g. first dip under thresh
             first_dip_under_thresh = np.argmax(
@@ -1231,7 +1254,7 @@ def get_N_xi(
 
             # Extract slice (maintaining all bootstraps) from cgram
             cgram_slice_fit_crop_bs = cgram_bs[
-                :, decay_start_idx:decayed_idx+1, f0_bs_idx
+                :, decay_start_idx : decayed_idx + 1, f0_bs_idx
             ]  # (bootstraps, cropped xi axis)
             CIs, avg_delta_CI, bs_fits = bootstrap_fit(
                 xis_s_fit_crop, cgram_slice_fit_crop_bs, p0, bounds, fit_function, sigma

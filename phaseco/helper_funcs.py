@@ -128,27 +128,45 @@ def get_ac_from_stft(stft_0, stft_xi, pw, wa=False, return_pd=False):
 
 
 
-def get_xis_array(xis_dict, fs, hop=1):
-    """Helper function to get a xis array from (possibly) a dictionary of values; returns xis and a boolean value saying whether or not delta_xi is constant"""
+def get_xis_array(xis_input, fs, hop=1):
+    """Helper function to get a xis array from (possibly) a dictionary of values; returns xis array in samples"""
     # Get xis array
     consistent_delta_xi = True
-    if isinstance(xis_dict, dict):
-        # Try to get parameters in samples
-        try:
-            xi_min = xis_dict["xi_min"]
-            xi_max = xis_dict["xi_max"]
-            delta_xi = xis_dict["delta_xi"]
-        except KeyError:
-            # if not there, try to get in seconds
+    if isinstance(xis_input, dict) or isinstance(xis_input, tuple):
+        use_secs=False
+        if isinstance(xis_input, dict):
+            # Try to get parameters in samples
             try:
-                xi_min = round(xis_dict["xi_min_s"] * fs)
-                xi_max = round(xis_dict["xi_max_s"] * fs)
-                delta_xi = round(xis_dict["delta_xi_s"] * fs)
-            # If neither are there, raise an error
+                xi_min = xis_input["xi_min"]
+                xi_max = xis_input["xi_max"]
+                delta_xi = xis_input["delta_xi"]
             except KeyError:
-                raise ValueError(
-                    "You passed a dict to create the xis array, but it was missing one or more of the keys: 'xi_min', 'xi_max', 'delta_xi'!"
-                )
+                # if not there, try to get in seconds
+                try:
+                    xi_min_s = xis_input["xi_min_s"] 
+                    xi_max_s = xis_input["xi_max_s"] 
+                    delta_xi_s = xis_input["delta_xi_s"] 
+                    xi_min, xi_max, delta_xi = round(xi_min_s * fs), round(xi_max_s * fs), round(delta_xi_s * fs)
+                    use_secs = True
+                # If neither are there, raise an error
+                except KeyError:
+                    raise ValueError(
+                        "You passed a dict to create the xis array, but it was missing one or more of the keys: 'xi_min', 'xi_max', 'delta_xi' (or ditto in seconds, xi_min_s etc)!"
+                    )
+                except Exception as e:
+                    # Handle any other unexpected exceptions
+                    print(f"An unexpected error occurred: {e}")
+            except Exception as e:
+                # Handle any other unexpected exceptions
+                print(f"An unexpected error occurred: {e}")
+        else: # Here it's a tuple
+            if len(xis_input)!=3:
+                raise ValueError("You passed a tuple to create the xis array, but it was length != 3! Needs to be (xi_min_s, xi_max_s, delta_xi_s)")
+            xi_min_s, xi_max_s, delta_xi_s = xis_input
+            use_secs = True
+            xi_min, xi_max, delta_xi = round(xi_min_s * fs), round(xi_max_s * fs), round(delta_xi_s * fs)
+
+
 
         # Check values
         if not all(isinstance(val, int) for val in [xi_min, xi_max, delta_xi]):
@@ -163,23 +181,29 @@ def get_xis_array(xis_dict, fs, hop=1):
             raise ValueError(f"'delta_xi' must be positive. Got delta_xi={delta_xi}")
 
         # Calculate xis
-        xis_dict = np.arange(xi_min, xi_max + 1, delta_xi)
-    elif not isinstance(xis_dict, list) or not isinstance(xis_dict, np.ndarray):
-        raise ValueError(f"xis={xis_dict} must be a dictionary or an array!")
-    # Here, we know we just got array of xis; check if we'll be able to turbo boost (if each xi is an int num of segs away)
+        if use_secs:
+            xis_s = np.linspace(xi_min_s, xi_max_s, int(np.ceil(xi_max_s / delta_xi_s)), endpoint=True)
+            xis = np.array(np.round(xis_s * fs), dtype=int)
+        else:
+            xis = np.arange(xi_min, xi_max + 1, delta_xi)
+    elif not isinstance(xis_input, list()) or not isinstance(xis_input, np.ndarray):
+        raise ValueError(f"Your xis_input={xis_input} to get_xis_array is invalid, must be dictionary, tuple, or array!")
+    # Here, we know we just got array of xis; just check it's consistent for turbo boost
     else:
-        xi_min = xis_dict[0]
-        xi_max = xis_dict[-1]
-        delta_xi = xis_dict[1] - xis_dict[0]
+        xis = xis_input
+        xi_min = xis[0]
+        xi_max = xis[-1]
+        delta_xi = xis[1] - xis[0]
         # Make sure this delta_xi is actually interprzetable as a consistent delta_xi
-        if np.any(np.abs(np.diff(xis_dict) - delta_xi) > 1e-9):
+        if np.any(np.abs(np.diff(xis_input) - delta_xi) > 1e-9):
             consistent_delta_xi = False
+
+    # Check for turbo boost
     if consistent_delta_xi and delta_xi == xi_min and xi_min == hop:
         print(
-            f"delta_xi=xi_min=hop={hop}, so each xi is an integer num of segs, so we just need a single stft per xi! NICE"
+            f"delta_xi=xi_min=hop={hop}, so each xi is an integer num of segs, so we just need a single stft per xi! NICE!"
         )
-
-    return xis_dict
+    return xis
 
 def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
 

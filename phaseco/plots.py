@@ -57,10 +57,10 @@ def plot_N_xi_fit(
     colossogram_slice = N_xi_dict["colossogram_slice"]
     N_xi = N_xi_dict["N_xi"]
     N_xi_std = N_xi_dict["N_xi_std"]
-    T = N_xi_dict["T"]
-    T_std = N_xi_dict["T_std"]
-    A = N_xi_dict["A"]
-    A_std = N_xi_dict["A_std"]
+    T_xi = N_xi_dict["T_xi"]
+    T_xi_std = N_xi_dict["T_xi_std"]
+    A_xi = N_xi_dict["A_xi"]
+    A_xi_std = N_xi_dict["A_xi_std"]
     mse = N_xi_dict["mse"]
     is_noise = N_xi_dict["is_noise"]
     decay_start_idx = N_xi_dict["decay_start_idx"]
@@ -121,8 +121,8 @@ def plot_N_xi_fit(
     else:
         plt.title(rf"{f0_exact:.0f}Hz Peak")
         if plot_fit:
-            if T_std < np.inf and A_std < np.inf:
-                fit_label = rf"[{f0_exact:.0f}Hz] $N_{{\xi}}={N_xi:.3g}\pm{N_xi_std:.3g}$, $A={A:.3g}\pm{A_std:.3g}$, MSE={mse:.3g}"
+            if T_xi_std < np.inf and A_xi_std < np.inf:
+                fit_label = rf"[{f0_exact:.0f}Hz] $N_{{\xi}}={N_xi:.3g}\pm{N_xi_std:.3g}$, $A={A_xi:.3g}\pm{A_xi_std:.3g}$, MSE={mse:.3g}"
             else:
                 fit_label = ""
                 print("One or more params is infinite!")

@@ -5,16 +5,14 @@ from numpy import floating, complexfloating
 from phaseco.helper_funcs import *
 from scipy.signal import get_window, find_peaks
 from scipy.fft import rfft, rfftfreq, fftfreq, fft
-from scipy.signal import correlate, get_window, convolve, correlation_lags
+from scipy.signal import get_window
 from scipy.optimize import curve_fit
 from tqdm import tqdm
-import math
-from numba import njit
-
 
 """
 PRIMARY USER-FACING FUNCTIONS
 """
+
 
 def get_stft(
     wf: Union[NDArray[floating], list[float]],
@@ -25,7 +23,6 @@ def get_stft(
     win: Optional[Union[NDArray[floating], list[float], str]] = None,
     N_segs: Optional[int] = None,
     demod: Optional[bool] = False,
-    verbose: Optional[bool] = False,
     realfft: Optional[bool] = True,
     f0s: Optional[Union[NDArray[floating], list[float]]] = None,
     return_dict: Optional[bool] = False,
@@ -41,16 +38,18 @@ def get_stft(
     Computes the Short-Time Fourier Transform (STFT) of a waveform.
 
     Args:
-        wf (array or list of float): Input waveform.
+        wf (array): Input waveform.
         fs (int): Sample rate.
-        tau(int): Length (in samples) of each segment
+        tau (int): Length (in samples) of each segment
         nfft (int, optional): FFT length. Zero-padding is applied if nfft > tau.
         hop (int, optional): Hop size between segments; if int, # samples, if 0 < hop < 1 then a proportion of tau
-        f0 (float, optional): If you only want to calculate a single frequency bin, pass it in here
+        win (array or str): Array of window coefficients or string for scipy.signal.get_window()
         N_segs (int, optional): Limits number of segments to extract.
-        demod (bool, optional): Phase shifts all FT coefficients to share same reference (start of waveform)
-        return_dict (bool, optional): If True, returns a dict with keys 't', 'f', 'stft', 'seg_start_indices',
-              'segmented_wf', 'hop', 'fs', 'tau', 'window'
+        demod (bool, optional): Phase shifts all FT coefficients to share  phase reference (wf[0])
+        realfft: (bool, optional): Skips negative frequencies
+        f0s: (array, optional): Only returns these frequencies (rounded to standard DFT frequency grid)
+        return_dict (bool, optional): If True, returns a dict with keys 't', 'f', 'stft', 'segmented_wf',
+            'hop', 'fs', 'tau', 'window'
 
     Returns:
         tuple: (t, f, stft) unless return_dict is True
@@ -127,7 +126,7 @@ def get_stft(
     # Get segmented waveform matrix
 
     segmented_wf = np.empty(
-        (N_segs, tau), dtype=complex if isinstance(wf[0], complex) else float
+        (N_segs, tau), dtype=complex if np.iscomplexobj(wf) else float
     )
     for k in range(N_segs):
         # grab the waveform in this segment
@@ -136,7 +135,7 @@ def get_stft(
         seg = wf[seg_start:seg_end]
         segmented_wf[k, :] = seg
     if do_windowing:
-        segmented_wf = segmented_wf * window # Broadcasts along final axis
+        segmented_wf = segmented_wf * window  # Broadcasts along final axis
 
     # Finally, get frequency axis
     f = rfftfreq(nfft, 1 / fs) if realfft else fftfreq(nfft, 1 / fs)
@@ -152,19 +151,11 @@ def get_stft(
 
     # Now we do the ffts!
 
-    # initialize segmented fft array
-    N_bins = len(f)
-    stft = np.empty((N_segs, N_bins), dtype=complex)
-
     # get ffts
     fft_func = rfft if realfft else fft
-    
-
-
 
     # # Compute FFT along the last axis (axis=1)
-    stft_full = fft_func(segmented_wf, n=nfft, axis=1) # zero pads if nfft > tau
-
+    stft_full = fft_func(segmented_wf, n=nfft, axis=1)  # zero pads if nfft > tau
     if f0s is None:
         stft = stft_full
     else:
@@ -218,7 +209,6 @@ def get_autocoherence(
     f0s: Optional[Union[NDArray[floating], list[float], None]] = None,
     return_pd: bool = False,
     return_dict: bool = False,
-    wa: bool = False,
 ) -> Union[
     Tuple[NDArray[floating], NDArray[floating]],
     Dict[str, Union[NDArray, int]],
@@ -226,26 +216,30 @@ def get_autocoherence(
     """Computes phase autocoherence of a waveform against a time-advanced version of itself.
 
     Args:
-        wf (array or list of float): Input waveform.
+        wf (array): Input waveform.
         fs (int): Sample rate.
         xi (int): Length (in samples) to advance copy of signal for phase reference.
         pw (bool): calculates the cohernece as (Pxy)**2 / (Pxx * Pyy) where y is a xi-advanced copy of the original wf x; this is *almost* like weighting the original vector strength average by the magnitude of each segment * magnitude of xi advanced segment
         tau (int): Window length in samples.
-        f0 (float, optional): If you only want to calculate a single frequency bin, pass it in here
         nfft (int, optional): FFT size; zero padding is applied if nfft > tau.
         hop (int, optional): Hop size between segments.
         win_meth (dict, optional): Windowing method; see get_win() for details.
         N_pd (int, optional): Limits number of phase differences.
         ref_type (str, optional): Phase reference type ('time', 'freq', 'freqs').
         freq_bin_hop (int, optional): Number of frequency bins over to reference phase to for ref_type='freq'.
-        return_pd (bool, optional): Adds pd to output dict plus <|phase diffs|> and <phase diffs>
-        return_dict (bool, optional): If True, returns dictionary with variables 'coherence', 'N_pd', 'N_segs', 'f', 'stft', 'tau', 'hop', 'xi', 'fs', 'pw',
+        f0s (array, optional): Only calculates for frequencies (rounded to standard DFT frequency grid).
+        return_pd (bool, optional): Adds phase diffs to output dict plus <|phase diffs|> and <phase diffs>
+        return_dict (bool, optional): If True, returns dictionary with variables 'autocoherence', 'N_pd', 'f',
+            'stft', 'tau', 'nfft', 'hop', 'xi', 'fs', 'pw'
 
     Returns:
         tuple: (f, autocoherence) unless return_dict is True
     """
+    # Initialize return dictionary
     if return_dict:
-        d = {}  # Initialize return dictionary
+        d = {}
+    elif return_pd:
+        raise ValueError("You wanted to return_pd but didn't choose return_dict!")
 
     # Handle defaults
     if hop is None:
@@ -325,7 +319,7 @@ def get_autocoherence(
             )
         # Calculate the autocoherence (note the other two outputs are possibly None)
         autocoherence, pd_dict = get_ac_from_stft(
-            stft_0, stft_xi, pw, wa=wa, return_pd=return_pd
+            stft_0, stft_xi, pw, return_pd=return_pd
         )
         # Add to dictionary if they WEREN'T None
         if return_dict:
@@ -378,7 +372,7 @@ def get_autocoherence(
                     )
 
             # get final autocoherence
-            autocoherence, avg_pd = get_avg_vector(pds)
+            autocoherence, _ = get_avg_vector(pds)
 
         # we'll need to take the last #(freq_bin_hop) bins off the frequency array
         f = f[0:-freq_bin_hop]
@@ -407,6 +401,7 @@ def get_autocoherence(
             f0s=f0s,
             demod=demod,
         )
+        # Get angles
         phases = np.angle(stft)
         # Calculate N_segs and N_bins
         N_segs = stft.shape[0]
@@ -431,7 +426,7 @@ def get_autocoherence(
                 )
         # set the phase diffs to one of these so we can return (could've also been pd_high)
         pds = pd_low
-        autocoherence_low, avg_pd = get_avg_vector(pd_low)
+        autocoherence_low, _ = get_avg_vector(pd_low)
         autocoherence_high, _ = get_avg_vector(pd_high)
         # average the colossogram you would get from either of these
         autocoherence = (autocoherence_low + autocoherence_high) / 2
@@ -439,11 +434,12 @@ def get_autocoherence(
     else:
         raise Exception("You didn't input a valid ref_type!")
 
+    # Return the minimal outputs if no dictionary is desired
     if not return_dict:
         return f, autocoherence
 
     if ref_type != "time" and return_pd:
-        # This logic is handled internally in the time block
+        # This is already handled in the "time" block
         if return_pd:
             d["pds"] = pds
             d["avg_pds"] = np.mean(pds, axis=0)
@@ -476,42 +472,28 @@ def get_win(
 
     Args:
         win_meth (dict): Dictionary specifying windowing method parameters. Keys include:
-
-            - `method` (str): Specifies the windowing method to use. Options are:
-
-                - `'static'`: Use a static window of type `win_type`, which should be a string or tuple
-                  compatible with SciPy `get_window()`. Required keys: `win_type`
-
-                - `'rho'`: Use a Gaussian window whose full width at half maximum (FWHM) is `rho * xi`.
-                  Required keys: `rho`, `snapping_rhortle`
-
-                - `'zeta'`: Use a window of type `win_type` with a shortened duration `tau`, such that
-                  the expected autocoherence for white noise is ≤ `zeta`. Zero-padding is applied up to `tau`
-                  to maintain the number of frequency bins. Required keys: `zeta`, `win_type`
-
-            - `rho` (float, optional): Controls the FWHM of the Gaussian window when `method == 'rho'`.
-
-            - `zeta` (float, optional): Maximum allowable spurious autocoherence due to overlap in the white noise case
-              (used when `method == 'zeta'`).
-
-            - `win_type` (str or tuple, optional): Window type to be passed to `scipy.signal.get_window()`
-              (used in `static` and `zeta` methods).
-
-            - `snapping_rhortle` (bool, optional): When `True` and `method == 'rho'`, switches from a Gaussian
-              window to a fixed boxcar for all `xi > tau`. Defaults to `False`.
+            - 'method' (str): Specifies the windowing method to use. Options are:
+                - 'static': Use a static window determined by win_type. Required keys: 'win_type'
+                - 'rho': Use a Gaussian window whose full width at half maximum (FWHM) is rho * xi. Required keys: 'rho', 'win_type'
+                - 'zeta': Shortens window such that the expected power-weighted autocoherence of white noise remains ≤ zeta. Zero-padding will be applied up to tau to maintain the number of frequency bins. Required keys: 'zeta', 'win_type'
+            - 'win_type' (str or tuple): Array of window coefficients or str to be passed to scipy.signal.get_window() (used in 'static' and 'zeta' methods).
+            - 'rho' (float, optional): Controls the FWHM of the Gaussian window when method == 'rho'.
+            - 'zeta' (float, optional): Maximum allowable spurious (power-weighted) autocoherence due to overlap in the white noise case (used when method == 'zeta').
+            - 'snapping_rhortle' (bool, optional): When True and method == 'rho', switches from a Gaussian window to a fixed boxcar for all xi > tau. Defaults to False.
 
         tau (int): Window length in samples.
         xi (int): Length (in samples) to advance copy of signal for phase reference.
-        ref_type (str, optional): Type of phase reference; should be `time` when using a dynamic windowing method.
+        ref_type (str, optional): Type of phase reference; should be 'time' when using a dynamic windowing method.
 
     Returns:
         tuple: (window array, tau)
     """
     try:
         method = win_meth["method"]
+        win_type = win_meth["win_type"]
     except:
         raise ValueError(
-            "the 'win_meth' dictionary must contain a 'method' key! See get_win() documentation for dzetails."
+            "the 'win_meth' dictionary must contain 'method' and 'win_type' keys! See get_win() documentation for dzetails."
         )
 
     # First, handle dynamic windows
@@ -519,7 +501,7 @@ def get_win(
         # Make sure our ref_type is appropriate
         if ref_type != "time":
             raise ValueError(
-                f"You passed in a dynamic windowing method ({method} windowing) but you're using a {ref_type} reference; this was designed for time!"
+                f"You passed in a dynamic windowing method ({method} windowing) but you're using a '{ref_type}' reference; this was designed for 'time'!"
             )
 
         if method == "rho":
@@ -585,9 +567,8 @@ def get_colossogram(
     global_xi_max_s: Union[float, None] = None,
     N_bs: int = 0,
     f0s: Union[list[float], float, NDArray[floating], None] = None,
-    wa: bool = False,
-    nbacf: Union[bool, None] = None,
-    return_dict: bool = False,
+    nbacf: bool = False,
+    return_dict: bool = True,
 ) -> Union[
     Tuple[NDArray[floating], NDArray[floating], NDArray[floating]],
     Dict[str, Union[NDArray, dict, str]],
@@ -597,20 +578,22 @@ def get_colossogram(
     Args:
         wf (array): Input waveform.
         fs (int): Sample rate.
-        xis (array or dict): Array of lags or dict with 'xi_min', 'xi_max', 'delta_xi'.
-        pw (bool): If True, calculates the autocoherence as (Pxy)**2 / (Pxx * Pyy) where y is a xi-advanced copy of the original wf x; this is *almost* like weighting the original vector strength average by the magnitude of each segment * magnitude of xi advanced segment
+        xis (array or dict): Array of lags or dict with keys 'xi_min', 'xi_max', 'delta_xi'.
+        pw (bool): If True, calculates the autocoherence as (Pxy)**2 / (Pxx * Pyy) where y is a xi-advanced copy of the original wf x.
         tau (int): Window length in samples.
         nfft (int, optional): FFT size in samples; implements zero padding if nfft > tau
         hop (int or float, optional): Hop size in samples or proportion of tau (if < 1)
-        win_meth (dict, optional): Window method; see get_win() for details
+        win_meth (dict, optional): Windowing method; see get_win() for details
         const_N_pd (bool, optional): Holds the number of phase diffs fixed at the minimum N_pd able to be calculated across all xi (e.g. it's set by the max xi in xis)
         global_xi_max_s (float, optional): instead of the constant N_pd being set by the maximum xi in this xi array, it's set by this value (e.g. if you're comparing across species with different xi_max)
-        nbacf (bool, optional): implements via FFT convolution and autocorrelation; automatically hop=1 sample, will be faster for few f0s and many xis
-        return_dict (bool, optional): If True, returns full dictionary with keys 'xis', 'xis_s', 'f', 'colossogram', 'tau', 'fs', 'N_pd_min', 'N_pd_max', 'hop', 'win_meth', 'global_xi_max'
+        N_bs (int, optional): Bootstraps the original STFT segments to obtain a confidence interval for the autocoherence decay.
+        nbacf (bool, optional): Implements via FFT convolution and autocorrelation; automatically hop=1 sample, will be faster for few f0s and many xis
+        return_dict (bool, optional): If True, returns full dictionary with keys 'xis', 'xis_s', 'f', 'colossogram', 'tau', 'tau_s', 'nfft', 'fs', 'N_pd_min', 'N_pd_max', 'hop', 'hop_s', 'win_meth', 'global_xi_max', 'method_id', 'pw'
 
     Returns:
-        tuple: (xis_s, f, colossogram) unless return_dict is True
+        dict: keys 'xis_s', 'f', 'colossogram' among others, or tuple with (xis_s, f, colossogram) if return_dict=False
     """
+    print("Calculating colossogram...")
     if return_dict:
         d = {}  # Initialize return dict
     elif N_bs > 0:
@@ -618,31 +601,29 @@ def get_colossogram(
 
     # Prep for windowing method
     win_type = win_meth["win_type"]
-    win_method = win_meth['method']
+    win_method = win_meth["method"]
 
-    # Make sure we can implement nbacf if it's asked for 
+    # Make sure we can implement nbacf if it's asked for
     if nbacf:
-        if win_method != 'static':
-            raise ValueError("Can't do NBACF method for dynamic windowing!")
+        if win_method not in ["static", "rho"]:
+            raise ValueError("Can't do NBACF method for zeta windowing yet!")
         elif hop is not None and hop != 1:
-            raise ValueError(f"You passed in hop={hop}, but with NBACF it must be 1 sample (or None)")
-    
-    # Even if it's not asked for, still use it if there are less than 10 f0s and static windowing
-    if nbacf is None:
-        if f0s is not None and win_method == 'static' and len(f0s) <= 10 and nbacf is None:
-            print(f"Since you entered a small amount of f0s and a static window, implementing freq by freq with NBACF (hop=1)")
-            nbacf = True
-        else:
-            nbacf = False
-    
+            raise ValueError(
+                f"You passed in hop={hop}, but with NBACF it must be 1 sample!"
+            )
+        elif f0s is None or len(f0s) > 10:
+            print(
+                "That's a lot of frequencies for freq-by-freq NBACF approach, are you sure??? May be faster with nbacf=False..."
+            )
+
     # Take care of hop size
     if hop is None:
-        hop = tau // 10 # Default
+        hop = tau // 10  # Default
     # Now we know it's been passed in nontrivially
     # First check if it's passed as a proportion of tau
-    elif hop <= 1 and not isinstance(hop, int): 
+    elif hop <= 1 and not isinstance(hop, int):
         hop = int(round(tau * hop))
-    # If we get here presumably it's just a positive integer number of samples, throw an error if not 
+    # If we get here presumably it's just a positive integer number of samples, throw an error if not
     elif not (isinstance(hop, int) and hop > 0):
         raise ValueError(
             f"hop(={hop}) must be either a positive int or 0 < hop < 1 for proportion of tau!"
@@ -728,7 +709,9 @@ def get_colossogram(
                 "zeta"
             ]  # Note win_meth must have these keys because get_win_meth_str went through
             # Calculate all tau_zetas at once
-            tau_zetas = get_tau_zetas(tau_max=tau, xis=xis, zeta=zeta, win_type=win_type)
+            tau_zetas = get_tau_zetas(
+                tau_max=tau, xis=xis, zeta=zeta, win_type=win_type
+            )
 
             # Define win_meth dict; zeta windowing is just a window of constant where the number of samples per segment (tau_zeta) changes with xi
             static_win_meth = {"method": "static", "win_type": win_type}
@@ -767,7 +750,7 @@ def get_colossogram(
                 win = get_window(win_type, tau)
                 # print(f"Implementing freq by freq with NBACF approach!")
                 colossogram = get_nbacf_cgram(wf, fs, xis, f, win, pw)
-                hop_s = 1/fs
+                hop_s = 1 / fs
             else:
                 # Get first stft
                 stft_0 = get_stft(
@@ -776,7 +759,9 @@ def get_colossogram(
                     tau=tau,
                     nfft=nfft,
                     hop=hop,
-                    N_segs=N_pd if const_N_pd else None, # If const_N_pd this has been pre-calc'd
+                    N_segs=(
+                        N_pd if const_N_pd else None
+                    ),  # If const_N_pd this has been pre-calc'd
                     win=get_window(win_type, tau),
                     f0s=f,
                     return_dict=False,
@@ -794,7 +779,7 @@ def get_colossogram(
                         stft_k_0 = stft_0[0:-xi_nsegs]
                         stft_k_xi = stft_0[xi_nsegs:]
                         colossogram[xi_idx, :] = get_ac_from_stft(
-                            stft_k_0, stft_k_xi, pw, wa=wa, return_pd=False
+                            stft_k_0, stft_k_xi, pw, return_pd=False
                         )[
                             0
                         ]  # Single output
@@ -821,36 +806,54 @@ def get_colossogram(
                         )[-1]
                         stft_k_0 = stft_0[0:N_pd]
                         colossogram[xi_idx, :] = get_ac_from_stft(
-                            stft_k_0, stft_k_xi, pw, wa=wa, return_pd=False
-                        )[0]  # Single output
-
-                
-
-
-
+                            stft_k_0, stft_k_xi, pw, return_pd=False
+                        )[
+                            0
+                        ]  # Single output
 
         # Rho windowing case
         case "rho":
             # Non-bootstrapping case
             if N_bs == 0:
-                for xi_idx, xi in enumerate(tqdm(xis)):
-                    # Calculate N_pd (assuming we're not holding it constant, in which case it was already done outside of loop)
-                    if not const_N_pd:
-                        # This is just as many segments as we possibly can with the current xi reference
-                        eff_len = len(wf) - xi
-                        N_pd = int((eff_len - tau) / hop) + 1
-                    colossogram[xi_idx, :] = get_autocoherence(
-                        wf=wf,
-                        fs=fs,
-                        xi=xi,
-                        pw=pw,
-                        tau=tau,
-                        nfft=nfft,
-                        hop=hop,
-                        win_meth=win_meth,
-                        N_pd=N_pd,
-                        f0s=f,
-                    )[-1]
+                if nbacf:
+                    # Get windows first
+                    print("Getting windows...")
+                    wins = np.empty((N_xis, tau))
+                    rho = win_meth["rho"]
+                    for xi_idx, xi in enumerate(xis):
+                        desired_fwhm = rho * xi
+                        sigma = desired_fwhm / (2 * np.sqrt(2 * np.log(2)))
+                        wins[xi_idx] = get_window(("gaussian", sigma), tau)
+                    w0 = np.array(get_window(win_meth["win_type"], tau))
+                    wins *= w0
+                    for f0_idx, f0 in enumerate(f):
+                        print(f"Processing f0 {f0_idx+1}/{N_bins}")
+                        for (
+                            xi_idx,
+                            xi,
+                        ) in enumerate(tqdm(xis)):
+                            colossogram[xi_idx, f0_idx] = get_nbacf_ac(
+                                wf=wf, fs=fs, xi=xi, f0=f0, win=wins[xi_idx], pw=pw
+                            )
+                else:
+                    for xi_idx, xi in enumerate(tqdm(xis)):
+                        # Calculate N_pd (assuming we're not holding it constant, in which case it was already done outside of loop)
+                        if not const_N_pd:
+                            # This is just as many segments as we possibly can with the current xi reference
+                            eff_len = len(wf) - xi
+                            N_pd = int((eff_len - tau) / hop) + 1
+                        colossogram[xi_idx, :] = get_autocoherence(
+                            wf=wf,
+                            fs=fs,
+                            xi=xi,
+                            pw=pw,
+                            tau=tau,
+                            nfft=nfft,
+                            hop=hop,
+                            win_meth=win_meth,
+                            N_pd=N_pd,
+                            f0s=f,
+                        )[-1]
 
             # Bootstrapping case
             else:
@@ -885,7 +888,7 @@ def get_colossogram(
                     )[-1]
                     # Calculate the standard colossogram
                     colossogram[xi_idx, :] = get_ac_from_stft(
-                        stft_0, stft_xi, pw, wa=wa, return_pd=False
+                        stft_0, stft_xi, pw, return_pd=False
                     )[
                         0
                     ]  # Ignore the second output (an empty dict)
@@ -896,7 +899,7 @@ def get_colossogram(
                         stft_0_bs = stft_0[np.ix_(seg_idxs, f0_idxs)]
                         stft_xi_bs = stft_xi[np.ix_(seg_idxs, f0_idxs)]
                         colossogram_bs[k, xi_idx, :] = get_ac_from_stft(
-                            stft_0_bs, stft_xi_bs, pw, wa=wa, return_pd=False
+                            stft_0_bs, stft_xi_bs, pw, return_pd=False
                         )[
                             0
                         ]  # Ignore the second output (an empty dict)
@@ -944,6 +947,23 @@ def get_welch(
     realfft: bool = True,
     return_dict: bool = False,
 ) -> Union[Tuple[NDArray[floating], NDArray[floating]], Dict[str, NDArray[floating]]]:
+    """Computes the Welch estimate of the power spectral density
+
+    Args:
+        wf (array): Input waveform.
+        fs (int): Sample rate.
+        tau (int): Length (in samples) of each segment.
+        nfft (int, optional): FFT length. Zero-padding is applied if nfft > tau.
+        hop (int, optional): Hop size between segments; if int, # samples, if 0 < hop < 1 then a proportion of tau
+        N_segs (int, optional): Limits number of segments to extract.
+        win (array or str): Array of window coefficients or string for scipy.signal.get_window()
+        scaling (str): 'density' for PSD, 'spectrum' for PSD*bin_width, 'magnitude' for magnitude spectrum
+        realfft: (bool, optional): Skips negative frequencies
+        return_dict (bool, optional): If True, returns a dict with keys 'f', 'spectrum', 'segmented_spectrum', 'scaling', 'fs', 'tau', 'nfft', 'hop', 'N_segs', 'win'
+
+    Returns:
+        tuple: (f, spectrum) unless return_dict is True
+    """
 
     stft_dict = get_stft(
         wf=wf,
@@ -976,7 +996,7 @@ def get_welch(
 
     S1 = np.sum(win)
     S2 = np.sum(win**2)
-    if scaling == "mags":
+    if scaling == "magnitude":
         spectrum = np.sqrt(spectrum)
         scaling_factor = 1 / S1
 
@@ -988,7 +1008,7 @@ def get_welch(
         scaling_factor = 1 / (fs * S2)
 
     else:
-        raise Exception("Scaling must be 'mags', 'density', or 'spectrum'!")
+        raise Exception("Scaling must be 'magnitude', 'density', or 'spectrum'!")
 
     # Normalize; since this is an rfft, we should multiply by 2
     spectrum = spectrum * 2 * scaling_factor
@@ -998,8 +1018,20 @@ def get_welch(
     if tau % 2 == 0:
         spectrum[-1] = spectrum[-1] / 2
 
+    # Return dictionary or minimal output tuple (f, spectrum)
     if return_dict:
-        return {"f": f, "spectrum": spectrum, "segmented_spectrum": segmented_spectrum}
+        return {
+            "f": f,
+            "spectrum": spectrum,
+            "segmented_spectrum": segmented_spectrum,
+            "scaling": scaling,
+            "fs": fs,
+            "tau": tau,
+            "nfft": nfft,
+            "hop": hop,
+            "N_segs": N_segs,
+            "win": win,
+        }
     else:
         return f, spectrum
 
@@ -1022,7 +1054,7 @@ def get_N_xi(
     """Fits a decay function to a slice of the colossogram at a given frequency bin f0; returns a dimensionless time constant N_xi = f0*T representing the autocoherence decay timescale (in # cycles)
 
     Args:
-        cgram (dict): Dictionary containing keys 'colossogram', 'f', and 'xis_s'
+        cgram (dict): Dictionary containing keys 'colossogram', 'f', 'xis_s', and 'pw'
         decay_start_limit_xi_s (float, optional): The fitting process looks for peaks in the range [0, decay_start_limit_xi_s] and starts the fit at the latest such peak
         mse_thresh (float, optional): Repeats fit until MSE < mse_thresh, shaving the smallest xi off each
         fit_func (str, optional): 'exp' fits an exponential decay, 'gauss' fits a gaussian decay
@@ -1040,15 +1072,17 @@ def get_N_xi(
             "fitted_exp_decay", "noise_means", "noise_stds", "noise_floor_bw_factor" and (if bootstrap is enabled) "CIs", "avg_delta_CI", "bs_fits"
 
     """
+    # Extract parameters from cgram
     try:
         xis_s = cgram["xis_s"]
         f = cgram["f"]
         colossogram = cgram["colossogram"]
+        pw = cgram["pw"]
     except:
         raise ValueError(
-            "'cgram' dictionary parameter needs keys 'xis_s', 'f', and 'colossogram'"
+            "'cgram' dictionary parameter needs keys 'xis_s', 'f', 'colossogram', and 'pw'!"
         )
-    pw = cgram["pw"]
+    
     # Handle default; if none is passed, we'll assume the decay start is within the first 25% of the xis array
     if decay_start_limit_xi_s is None:
         decay_start_limit_xi_s = xis_s[len(xis_s) // 4]
@@ -1063,7 +1097,7 @@ def get_N_xi(
     # So sigma_power <= -1 means weight the low autocoherence bins less and focus on the initial decay more
     sigma = None if sigma_power == 0 else colossogram_slice**sigma_power
 
-    print(f"[FITTING {f0_exact:.0f}Hz AUTOCOHERENCE DECAY]")
+    print(f"Initializing fit on {f0_exact:.0f}Hz autocoherence decay...")
 
     # Calculate noise floor and when we've dipped below it
     is_noise, noise_means, noise_stds = get_is_noise(
@@ -1161,19 +1195,6 @@ def get_N_xi(
         if failures != 0:
             # We just failed, so let's redefine the decay_start_idx and re-find the corresponding decay index
             decay_start_idx = decay_start_idx + trim_step
-
-            # REMOVE
-            # I actually think we DONT want to recalculate decayed idx
-            # decayed_idx = get_decayed_idx(
-            #     stop_fit,
-            #     xis_s,
-            #     decay_start_idx,
-            #     colossogram_slice,
-            #     is_noise,
-            #     f0_exact,
-            #     stop_fit_frac,
-            #     verbose=False,
-            # )
 
             # Now we can crop again with these new values
             xis_s_fit_crop = xis_s[decay_start_idx:decayed_idx]
@@ -1300,52 +1321,4 @@ def get_N_xi(
             )
 
     return N_xi, N_xi_fit_dict
-
-
-# This is more efficient for very low hops and small amounts of f0
-def get_nbacf_cgram(wf, fs, xis, f0s, win, pw):
-    colossogram = np.empty((len(xis), len(f0s)))
-    for f_idx, f0_exact in enumerate(tqdm(f0s)):
-        omega_0_norm = f0_exact * 2*np.pi / fs
-        n = np.arange(len(win))
-        kernel = win * np.exp(1j * omega_0_norm * n)
-        wf_filtered = convolve(wf, kernel, mode='valid', method='fft')
-
-        # Normalize amplitude
-        if not pw:
-            wf_filtered = wf_filtered / np.abs(wf_filtered)
-        acf = correlate(wf_filtered, wf_filtered, mode='full', method='auto')
-        N = len(wf_filtered)
-        lags = correlation_lags(N, N, mode='full')
-
-        # Get some lag-related vars
-        zero_lag_idx = len(lags)//2 # index of zero lag
-
-        # Crop to the lags we need
-        xi_idxs = xis + zero_lag_idx
-        acf = acf[xi_idxs]
-        lags = lags[xi_idxs]
-
-        lags_abs = np.abs(lags)
-        num_terms = N - lags_abs # number of terms in each ACF calculation
-
-        # Normalize if pw
-        if pw:
-            # Construct variance array for exact correspondence with PW C_xi calculation
-            var_xi = np.empty(len(lags))
-            for k, lag_abs in enumerate(lags_abs):
-                if lag_abs == 0:
-                    var_xi[k] = np.var(wf_filtered)
-                else:
-                    var_xi[k] = np.sqrt(np.var(wf_filtered[lag_abs:])*np.var(wf_filtered[:-lag_abs]))
-
-            colossogram[:, f_idx] = np.abs(acf)/(num_terms*var_xi) 
-            
-        # Otherwise we just have to divide by the number of terms
-        else:
-            colossogram[:, f_idx] = np.abs(acf)/num_terms
-        
-    return colossogram
-
-
 

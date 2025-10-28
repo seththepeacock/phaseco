@@ -67,17 +67,13 @@ pw = True
 xi_s = 0.01  # This one I like to define in seconds (that's the _s) and then convert to samples later
 
 "Windowing method; see get_win_pc() documentation for details"
-# Suggested parameters for rho windowing:
-# (smoother, but less optimal frequency resolution/spurious autocoherence tradeoff)
-win_meth = {'method': 'rho', 'rho': 0.07}
-
-# Suggested parameters for zeta windowing:
-# (zeta=max allowed spurious autocoherence)
-# win_meth = {"method": "zeta", "zeta": 0.1, "win_type": "hann"}
-
+# Dynamic windowing method 'rho'
+win_meth = {"method": "rho", "win_type": "flattop", "rho": 1.0}
 
 # Phase reference type
-ref_type = "time"  # This means we reference the phase to an earlier point in time AKA C_xi
+ref_type = (
+    "time"  # This means we reference the phase to an earlier point in time AKA C_xi
+)
 # other option is 'freq' for neighboring freq bin AKA C_omega
 
 # Convert to samples
@@ -115,17 +111,17 @@ xis = {
 # ...or it can just be the array of desired xi values (in samples)
 
 # Calculate colossogram
-print("Calculating Colossogram:")
-
-# Here's the simplest way to do it:
+# By default, it will output a simple tuple:
 # xis_s, f, colossogram = pc.get_colossogram(wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth)
 
-# But you can also get a dictionary with extra parameters, like the method_id for plotting
-cgram = pc.get_colossogram(
+# But using return_dict=True you can also get a dictionary with extra parameters
+    # This dict can be directly passed into 
+cgram_dict = pc.get_colossogram(
     wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth, return_dict=True
 )
+
 # Extract desired values from dictionary
-match cgram:
+match cgram_dict:
     case {
         "xis_s": xis_s,
         "f": f,
@@ -136,12 +132,12 @@ match cgram:
 
 # Plot colossogram
 plt.subplot(2, 2, 3)
-pc.plot_colossogram(xis_s, f, colossogram)
+pc.plot_colossogram(cgram_dict)
 plt.ylim(8, 12)
 plt.title(rf"Colossogram")
 
-# Extract N_xi
-N_xi, fit_dict = pc.get_N_xi(cgram, f0)
+# Extract N_xi from get_colossogram() dictionary output
+N_xi, fit_dict = pc.get_N_xi(cgram_dict, f0)
 
 plt.subplot(2, 2, 4)
 pc.plot_N_xi_fit(fit_dict)

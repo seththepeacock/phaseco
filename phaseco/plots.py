@@ -8,7 +8,16 @@ from .funcs import *
 "Colossogram Plot Function"
 
 
-def plot_colossogram(xis_s, f, colossogram, pw=False, cmap="magma", return_cbar=False):
+def plot_colossogram(cgram, cmap="magma", vmax=1.0, return_cbar=False):
+    try:
+        xis_s = cgram['xis_s']
+        f = cgram['f']
+        colossogram = cgram['colossogram']
+        pw = cgram['pw']
+    except:
+        KeyError("cgram must have keys 'xis_s', 'f', 'colossogram', and 'pw'!")
+        
+    
     # make meshgrid
     xx, yy = np.meshgrid(
         xis_s * 1000, f / 1000
@@ -20,7 +29,6 @@ def plot_colossogram(xis_s, f, colossogram, pw=False, cmap="magma", return_cbar=
 
     # plot the heatmap
     vmin = 0
-    vmax = 1
     heatmap = plt.pcolormesh(
         xx, yy, colossogram, vmin=vmin, vmax=vmax, cmap=cmap, shading="nearest"
     )

@@ -1,19 +1,13 @@
 import numpy as np
-from scipy.signal import get_window
+from scipy.signal import correlate, get_window, convolve, correlation_lags
 import time
 from scipy.optimize import curve_fit
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 
-
 """
-HELPER FUNCTIONS
+SIMPLE MATH FUNCTIONS
 """
-
-def magsq(x):
-    return (np.conj(x)*x).real # We can safely ignore the non-real part since 
-
 
 def exp_decay(x, T, amp):
     return amp * np.exp(-x / T)
@@ -27,6 +21,14 @@ def gauss_decay_fixed_amp(x, T):
 def exp_decay_fixed_amp(x, T):
     return np.exp(-x / T)
 
+def magsq(x):
+    return (np.conj(x)*x).real # We can safely ignore the non-real part since 
+
+
+
+"""
+AUTOCOHERENCE HELPERS
+"""
 
 def get_avg_vector(phases, return_angle=True):
     """Returns magnitude, phase of vector made by averaging over unit vectors with angles given by input phases
@@ -88,13 +90,15 @@ def get_ac_from_stft(stft_0, stft_xi, pw, wa=False, return_pd=False):
 
     # Universals
     xy = stft_xi * np.conj(stft_0)
-    # Powerweighted (C_xi)
+    # Powerweighted (C_xi^P)
     if pw:
         # Calculate coherence
         Pxy = np.mean(xy, 0)
+        # Optionally do a simple weighted average of the cross-spectral coefficients over segments
         if wa:
             avg_weights = np.mean(np.abs(stft_xi) * np.abs(stft_0), 0)
             autocoherence = np.sqrt(Pxy / avg_weights)
+        # This is the standard implementation, equivalent to the Welch coherence estimate with x=wf[:-xi] and y = [xi:] 
         else:
             Pxx = np.mean(magsq(stft_0), 0)
             Pyy = np.mean(magsq(stft_xi), 0)
@@ -103,9 +107,9 @@ def get_ac_from_stft(stft_0, stft_xi, pw, wa=False, return_pd=False):
                 pds = np.angle(Pxy)
                 avg_pd = np.angle(np.mean(np.exp(1j * pds), 0, dtype=complex))
 
-    # Non powerweighted (C_xi^phi)
+    # Non-powerweighted (C_xi^phi)
     else:
-        # Normalize for unit vectors
+        # Normalize each cross-spectral coefficients for unit vectors
         xy_norm = xy / np.abs(xy)
         # Get average unit vector
         avg_xy_norm = np.mean(xy_norm, axis=0)
@@ -115,7 +119,7 @@ def get_ac_from_stft(stft_0, stft_xi, pw, wa=False, return_pd=False):
             # Calculate the angle of the average unit vector
             avg_pd = np.angle(avg_xy_norm)
 
-    # Add various pd things if requested
+    # Add various phase diff metrics (if requested)
     if return_pd:
         pd_dict["pds"] = pds
         pd_dict["avg_pd"] = avg_pd
@@ -126,7 +130,88 @@ def get_ac_from_stft(stft_0, stft_xi, pw, wa=False, return_pd=False):
     return autocoherence, pd_dict  # Latter two arguments are possibly None
         
 
+# This is more efficient for very low hops and small amounts of f0
+def get_nbacf_cgram(wf, fs, xis, f0s, win, pw):
+    colossogram = np.empty((len(xis), len(f0s)))
+    for f_idx, f0_exact in enumerate(tqdm(f0s)):
+        omega_0_norm = f0_exact * 2 * np.pi / fs
+        n = np.arange(len(win))
+        kernel = win * np.exp(1j * omega_0_norm * n)
+        wf_filtered = convolve(wf, kernel, mode="valid", method="fft")
 
+        # Normalize amplitude
+        if not pw:
+            wf_filtered = wf_filtered / np.abs(wf_filtered)
+        acf = correlate(wf_filtered, wf_filtered, mode="full", method="auto")
+        N = len(wf_filtered)
+        lags = correlation_lags(N, N, mode="full")
+
+        # Get some lag-related vars
+        zero_lag_idx = len(lags) // 2  # index of zero lag
+
+        # Crop to the lags we need
+        xi_idxs = xis + zero_lag_idx
+        acf = acf[xi_idxs]
+        lags = lags[xi_idxs]
+
+        lags_abs = np.abs(lags)
+        num_terms = N - lags_abs  # number of terms in each ACF calculation
+
+        # Normalize if pw
+        if pw:
+            # Construct variance array for exact correspondence with PW C_xi calculation
+            var_xi = np.empty(len(lags))
+            for k, lag_abs in enumerate(lags_abs):
+                if lag_abs == 0:
+                    var_xi[k] = np.var(wf_filtered)
+                else:
+                    var_xi[k] = np.sqrt(
+                        np.var(wf_filtered[lag_abs:]) * np.var(wf_filtered[:-lag_abs])
+                    )
+
+            colossogram[:, f_idx] = np.abs(acf) / (num_terms * var_xi)
+
+        # Otherwise we just have to divide by the number of terms
+        else:
+            colossogram[:, f_idx] = np.abs(acf) / num_terms
+
+    return colossogram
+
+
+# One-by-one for rho windowing
+def get_nbacf_ac(wf, fs, xi, f0, win, pw):
+    if xi <= 0:
+        raise ValueError("xi must be strictly positive")
+    omega_0_norm = f0 * 2 * np.pi / fs
+    n = np.arange(len(win))
+    kernel = win * np.exp(1j * omega_0_norm * n)
+    wf_filtered = convolve(wf, kernel, mode="valid", method="fft")
+
+    # Normalize amplitude
+    if not pw:
+        wf_filtered = wf_filtered / np.abs(wf_filtered)
+    acf = correlate(wf_filtered, wf_filtered, mode="full", method="auto")
+    N = len(wf_filtered)
+    lags = correlation_lags(N, N, mode="full")
+
+    # Get some lag-related vars
+    zero_lag_idx = len(lags) // 2  # index of zero lag
+
+    # Crop to the lag we need
+    acf = acf[xi + zero_lag_idx]
+    num_terms = N - xi  # number of terms in each ACF calculation
+
+    # Normalize if pw
+    if pw:
+        # Construct variance array for exact correspondence with PW C_xi calculation
+        var_xi = np.sqrt(np.var(wf_filtered[xi:]) * np.var(wf_filtered[:-xi]))
+        ac = np.abs(acf) / (num_terms * var_xi)
+
+    # Otherwise we just have to divide by the number of terms
+    else:
+        ac = np.abs(acf) / num_terms
+
+    return ac
 
 def get_xis_array(xis_input, fs, hop=1):
     """Helper function to get a xis array from (possibly) a dictionary of values; returns xis array in samples"""
@@ -205,6 +290,12 @@ def get_xis_array(xis_input, fs, hop=1):
         )
     return xis
 
+
+
+"""
+DECAY FITTING HELPERS
+"""
+
 def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
 
     # Get mean and std dev of coherence (over frequency axis, axis=1) for each xi value (using ALL frequencies)
@@ -217,8 +308,6 @@ def get_is_noise(colossogram, colossogram_slice, noise_floor_bw_factor=1):
     is_noise = colossogram_slice <= noise_floor
 
     return is_noise, noise_means, noise_stds
-
-
 
 
 def get_decayed_idx(
@@ -313,12 +402,10 @@ def bootstrap_fit(x, y_bs, p0, bounds, fit_function, sigma):
     return CIs, avg_delta_CI, bs_fits
 
 
-
     
-    
-
-
-
+"""
+DYNAMIC WINDOWING HELPERS
+"""
 
 def get_tau_zeta(tau_min, tau_max, xi, zeta, win_type, verbose=False):
     """Returns the max tau such that the expected coherence for white noise for this window / reference distance xi is less than zeta
@@ -452,7 +539,9 @@ def get_win_autocorr(win, xi):
 
 
 
-
+"""
+STRING BUILDERS
+"""
 
 def get_win_meth_str(win_meth, latex=False):
     """Returns a string representing the windowing method (also checks if win_meth is passed correctly)

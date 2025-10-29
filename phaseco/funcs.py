@@ -213,7 +213,7 @@ def get_autocoherence(
     Tuple[NDArray[floating], NDArray[floating]],
     Dict[str, Union[NDArray, int]],
 ]:
-    """Computes phase autocoherence of a waveform against a time-advanced version of itself.
+    """Computes a spectrum representing stability in phase evolution for a fixed reference time as a function of frequency.
 
     Args:
         wf (array): Input waveform.
@@ -691,9 +691,7 @@ def get_colossogram(
     win_meth_str = get_win_meth_str(
         win_meth, latex=True
     )  # This will also check that our win_meth was passed correctly
-    # method_id = rf"[{win_meth_str}]   [$\tau$={tau_s*1000:.2f}ms]   [$\xi_{{\text{{max}}}}={xis_s[-1]*1000:.0f}$ms]   [Hop={(hop_s)*1000:.0f}ms]   [{N_pd_str}]"
-    hop_prop = hop / tau
-    method_id = rf"[$\tau$={tau_s*1000:.2f}ms]   [PW={pw}]   [{win_meth_str}]   [Hop={(hop_prop):.2g}$\tau$]   [{N_pd_str}]   [nfft={nfft}]"
+    method_id = rf"[$\tau$={tau_s*1000:.4g}ms]   [PW={pw}]   [{win_meth_str}]   [Hop={(hop_s)*1000:.4g}ms]   [{N_pd_str}]   [nfft={nfft}]"
 
     "Loop through xis and calculate colossogram based on windowing method"
     match win_method:
@@ -1261,7 +1259,7 @@ def get_N_xi(
     xis_num_cycles_fit_crop = xis_s_fit_crop * f0_exact
 
     # Make output dict
-    N_xi_fit_dict = {
+    decay_fit_dict = {
         "f": f,
         "f0_exact": f0_exact,
         "colossogram_slice": colossogram_slice,
@@ -1316,9 +1314,9 @@ def get_N_xi(
                 xis_s_fit_crop, cgram_slice_fit_crop_bs, p0, bounds, fit_function, sigma
             )
             # Add to output dict
-            N_xi_fit_dict.update(
+            decay_fit_dict.update(
                 {"CIs": CIs, "avg_delta_CI": avg_delta_CI, "bs_fits": bs_fits}
             )
 
-    return N_xi, N_xi_fit_dict
+    return N_xi, decay_fit_dict
 

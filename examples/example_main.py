@@ -8,7 +8,7 @@ plt.figure(figsize=(12, 8))
 "Generate Waveform - Sinusoid with Brownian Phase Noise"
 
 # --- Parameters ---
-fs = 44100  # Sampling rate (Hz), standard for many waveforms (including CDs!)
+fs = 44100  # Sampling rate (Hz)
 T_s = 60  # Duration (seconds)
 f0 = 10000  # Nominal frequency of the sinusoid (Hz)
 A = 1.0  # Amplitude

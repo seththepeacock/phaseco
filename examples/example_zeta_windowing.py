@@ -10,17 +10,20 @@ std = 10
 wf = np.random.normal(0, std, wf_len)
 
 "Get Colossogram"
-pw = True
-tau = 2**13
-tau_s = tau / fs
-print(f"tau={tau_s:.3f}")
-hop_s = 0.1
-hop = round(hop_s * fs)
+# Set power-weights switch (zeta-windowing can be used with pw=False as well, but makes more sense here)
+pw = True 
+# Set values in seconds
+tau_s = 0.1 # 100ms
+hop_s = 0.1 # 100ms (0% overlap for quick computation but typically should do hop somewhere in [0.1*tau, 0.5*tau])
+# Convert to samples
+tau, hop = int(round(tau_s*fs)), int(round(hop_s*fs))
+# Define grid of xis
 xis = {
     "xi_min_s": 0.01,
     "xi_max_s": 0.25,
     "delta_xi_s": 0.005,
 }
+# Set zeta
 zeta = 0.2
 win_type = 'boxcar' # Used in scipy get_window()
 win_meth = {"method": "zeta", "zeta": zeta, "win_type":win_type}

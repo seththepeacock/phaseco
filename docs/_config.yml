@@ -2,4 +2,4 @@ theme: jekyll-theme-minimal
 title: phaseco
 description: Tools for phase autocoherence analysis with dynamic windowing methods.
 show_downloads: true
-logo: assets/profile.png  # optional
+# logo: assets/profile.png  # optional

@@ -1,6 +1,6 @@
 # phaseco
 
-**phaseco** is a Python package for phase autocoherence analysis with dynamic windowing methods.
+A Python package for phase autocoherence analysis with dynamic windowing methods.
 
 ## Installation
 You can install **phaseco** directly from PyPI:

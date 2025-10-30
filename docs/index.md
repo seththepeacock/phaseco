@@ -70,9 +70,10 @@ We can also calculate how the autocoherence decays over increasing reference tim
 xis = {'xi_min_s':0.001, 'xi_max_s':0.100, 'delta_xi_s':0.001} # 1ms to 100ms in 1ms steps
 ```
 
-All frequency bins will show high autocoherence when $\xi<<\tau$. 
-    - This can be understood directly; if $\xi<<\tau$ each window will contain almost the same set of samples as its $\xi$-advanced partner. Therefore even for random noise, the phase evolution over short $\xi$ will always be consistently near $\phi_\xi-\phi= \omega\xi$ leading to spuriously high autocoherence.
-    - This can also be understood as a consequence of the time-frequency tradeoff. Large $\tau$ means the effective filters in the STFT are very narrow; this localization in frequency smears timing information over small timescales $\xi$ so that the phase evolution is always consistent.
+Note that all frequency bins will show high autocoherence for small reference times relative to window length (i.e. $\xi\ll\tau$). 
+- This can be understood directly; if $\xi\ll\tau$ each window will contain almost the same set of samples as its $\xi$-advanced partner. Therefore even for random noise, the phase evolution over short $\xi$ (that is, the difference in phase at a given point in time $\phi$ to one $\xi$ samples later $\phi_\xi$) will always be consistently near $\phi_\xi-\phi= \omega\xi$ leading to spuriously high autocoherence.
+- This can also be understood as a consequence of the time-frequency tradeoff. Large $\tau$ means the effective filters in the STFT are very narrow; this localization in frequency smears timing information over small timescales $\xi$ so that the phase evolution is always approximately consistent/coherent.
+
 Moreover, for a fixed 'static' window shape of fixed length $\tau$, all frequencies' autocoherence will decay in nearly the same way as $\xi\rightarrow\tau$. This makes it difficult to extract information from this decay at a particular frequency of interest.
 
 To address this, we implement dynamic windowing methods which result in a wider effective filter (broad localization in frequency) for low $\xi$ (when tight localization in time is needed); see "Overview of Windowing Methods."
@@ -136,7 +137,7 @@ win_meth = {
 | Key | Type | Description |
 |------|------|-------------|
 | `method` | str | Windowing method: `'static'`, `'rho'`, or `'zeta'`. |
-| `win_type` | str or tuple | Window type (passed to `scipy.signal.get_window`). |
+| `win_type` | str or tuple | Window type (passed to `scipy.signal.get_window()`). |
 | `rho` | float | FWHM multiplier for Gaussian window (used in `'rho'` method). |
 | `zeta` | float | Controls allowable spurious autocoherence in `'zeta'` method. |
 | `snapping_rhortle` | bool | When True and method=`'rho'`, switches to boxcar for all $\xi>\tau$. |

@@ -97,9 +97,9 @@ pc.plot_colossogram(cgram_dict)
 plt.show()
 ```
 
-<img src="assets/Owl Colossogram (owl_TAG4learSOAEwf1).png" alt="Plot of a 'colossogram' for the spontaneous otoacoustic emission of a barn owl." width="500"/>
+<img src="https://github.com/seththepeacock/phaseco/blob/main/docs/assets/Owl%20Colossogram%20(owl_TAG4learSOAEwf1).png" alt="Plot of a 'colossogram' for the spontaneous otoacoustic emission of a barn owl." width="500"/>
 
-Finally, we can estimate a (nondimensionalized) time constant N_xi representing the rate of decay in autocoherence for a given frequency `f0`. This is done by fitting an exponential decay $Ae^{t(\xi)/T_\xi}$, where $t(\xi)=\xi/f_s$ and the time constant $T_\xi$ is nondimensionalized as $N_\xi = T_\xi \cdot f_0$. 
+Finally, we can estimate a (nondimensionalized) time constant N_xi representing the rate of decay in autocoherence for a given frequency `f0`. This is done by fitting an exponential decay $Ae^{t(\xi)/T_\xi}$, where $t(\xi)=\xi/f_s$. The time constant $T_\xi$ is then nondimensionalized as $N_\xi = T_\xi \cdot f_0$, representing the number of cycles a sinusoid at frequency $f_0$ would pass through in $T_\xi$ seconds.
 
 ```python
 f0 = 1000 # in Hz
@@ -111,7 +111,7 @@ plt.figure()
 pc.plot_N_xi(decay_dict)
 plt.show()
 ```
-<img src="assets/Owl%20N_xi%20Fit%20[9633Hz]%20(owl_TAG4learSOAEwf1).png" alt="Plot of the decay in autocoherence for the spontaneous otoacoustic emission of a barn owl." width="500"/>
+<img src="https://github.com/seththepeacock/phaseco/blob/main/docs/assets/Owl%20N_xi%20Fit%20%5B9633Hz%5D%20(owl_TAG4learSOAEwf1).png" alt="Plot of the decay in autocoherence for the spontaneous otoacoustic emission of a barn owl." width="500"/>
 
 **Overview of Windowing Methods**
 - **`'static'`** — Fixed window defined by `win_type`.  

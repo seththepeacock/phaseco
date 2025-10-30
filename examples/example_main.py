@@ -100,25 +100,17 @@ plt.legend()
 "Get Colossogram"
 # This is a series of autocoherences, one for each xi value, showing how the autocoherence falls off with increasing reference distance
 
-# --- Parameters ---
+# set the min, max, and step of the array of xi (units of seconds)
 xis = {
     "xi_min_s": 0.01,
-    "xi_max_s": 1.0,
-    "delta_xi_s": 0.01,
-}
-# the xis parameter can be dict like this to create evenly spaced array from xi_min to xi_max with step delta_xi
-# can be passed in samples (xi_min, etc) or seconds (xi_min_s, etc)
-# ...or it can just be the array of desired xi values (in samples)
+    "xi_max_s": 2.0,
+    "delta_xi_s": 0.10,
+} # 10ms to 2s in steps of 10ms
 
 # Calculate colossogram
-# By default, it will output a simple tuple:
-# xis_s, f, colossogram = pc.get_colossogram(wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth)
-
-# But using return_dict=True you can also get a dictionary with extra parameters
-    # This dict can be directly passed into 
 cgram_dict = pc.get_colossogram(
-    wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth, return_dict=True
-)
+    wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth
+) # outputs a dictionary
 
 # Extract desired values from dictionary
 match cgram_dict:

@@ -3,21 +3,36 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 from matplotlib.colors import to_rgb, to_hex
 from .funcs import *
+from matplotlib.colorbar import Colorbar
 
 
 "Colossogram Plot Function"
 
 
-def plot_colossogram(cgram, cmap="magma", vmax=1.0, return_cbar=False):
+def plot_colossogram(
+    cgram: dict,
+    cmap: Optional[str] = "magma",
+    vmax: Optional[float] = 1.0,
+    return_cbar: Optional[bool] = False,
+) -> Optional[Colorbar]:
+    """
+    Plots a colossogram using matplotlib.pyplot
+    Args:
+        cgram (dict): Dictionary output of pc.get_colossogram()
+        cmap (str, optional): Specify matplotlib colormap
+        vmax (float, optional): Specify maximum colorbar value
+        return_cbar (bool, optional): Returns colorbar for more control over plot
+    Returns:
+        Optional[Colorbar]: The matplotlib colorbar if `return_cbar` is True, otherwise None.
+    """
     try:
-        xis_s = cgram['xis_s']
-        f = cgram['f']
-        colossogram = cgram['colossogram']
-        pw = cgram['pw']
+        xis_s = cgram["xis_s"]
+        f = cgram["f"]
+        colossogram = cgram["colossogram"]
+        pw = cgram["pw"]
     except:
         KeyError("cgram must have keys 'xis_s', 'f', 'colossogram', and 'pw'!")
-        
-    
+
     # make meshgrid
     xx, yy = np.meshgrid(
         xis_s * 1000, f / 1000
@@ -34,7 +49,7 @@ def plot_colossogram(cgram, cmap="magma", vmax=1.0, return_cbar=False):
     )
 
     # get and set label for cbar
-    cbar_label = r"$C_\xi^P$" if pw else r"$C_\xi$"
+    cbar_label = r"$C_\xi^P$" if pw else r"$C_\xi^\phi$"
     cbar = plt.colorbar(heatmap)
     cbar.set_label(cbar_label, labelpad=30)
 
@@ -46,11 +61,11 @@ def plot_colossogram(cgram, cmap="magma", vmax=1.0, return_cbar=False):
 
 
 def plot_N_xi_fit(
-    N_xi_dict,
-    color="#7E051F",
-    xaxis_units="sec",
-    plot_noise_floor=True,
-    noise_bin=None,
+    N_xi_dict: dict,
+    color: Optional[str] = "#7E051F",
+    xaxis_units: Optional[str] = "sec",
+    plot_noise_floor: Optional[bool] = True,
+    noise_bin: Optional[Union[float, None]] = None,
     colossogram=None,
     lw_fit=3,
     lw_stroke=2,
@@ -58,7 +73,25 @@ def plot_N_xi_fit(
     s_noise=None,
     zoom_to_fit=False,
     plot_fit=True,
-):
+) -> None:
+    """
+    Plots the autocoherence decay and exponential fit using matplotlib.pyplot
+    
+    Args:
+        N_xi_dict (dict): The dictionary output of pc.get_N_xi()
+        color (str, optional): The color of the plotted data
+        xaxis_units (str, optional): "sec" or "#cycles"
+        plot_noise_floor (bool, optional): Plot the mean \pm std of all bins
+        noise_bin (float, optional): Plot decay of bin (typically noise) for reference
+        colossogram (array, optional): If noise_bin passed in, passed in colossogram array
+        lw_fit (float, optional): Linewidth of the fitted exponential
+        lw_stroke (float, optional): Linewidth of the stroke around the fitted exponential
+        s_signal (float, optional): Size of the data points
+        s_noise (float or None, optional): Size of the data points determined to be below the noise floor; if None, defaults to s_signal
+        zoom_to_fit (bool, optional): Zooms the plot into the range of the exponential fit
+        plot_fit (bool, optional): Sets if the fitted exponential is included.
+    """
+
     # Unpack dict
     f = N_xi_dict["f"]
     f0_exact = N_xi_dict["f0_exact"]
@@ -156,7 +189,7 @@ def plot_N_xi_fit(
             marker=marker_signal,
             color=color,
             zorder=2,
-            label=opt_label
+            label=opt_label,
         )
     else:
         # First plot the bit below the noise floor
@@ -168,7 +201,7 @@ def plot_N_xi_fit(
             marker=marker_noise,
             edgecolors=edgecolor_noise,
             zorder=2,
-            label=opt_label
+            label=opt_label,
         )
         # Then the bit above the noise floor
         is_signal = ~is_noise
@@ -246,5 +279,5 @@ def plot_N_xi_fit(
     plt.ylabel(ylabel)
     plt.ylim(0, 1)
     if zoom_to_fit:
-        plt.xlim(xis_s[0]*1000, xis_s[decayed_idx]*1000+10)
-    plt.legend(loc='upper right')
+        plt.xlim(xis_s[0] * 1000, xis_s[decayed_idx] * 1000 + 10)
+    plt.legend(loc="upper right")

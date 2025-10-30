@@ -25,7 +25,7 @@ pip install git+https://github.com/seththepeacock/phaseco.git
 It includes functions for:
 - Estimating **autocoherence**, a spectrum representing stability in phase evolution over a fixed reference time as a function of frequency
 - Building **colossograms** (from coherence-loss-o-gram) for visualization of the decay in autocoherence with increasing reference time
-- Extracting **time constants** representing this decay for a given frequency
+- Extracting **time constants** representing autocoherence decay for a fixed frequency
 - Implementing **dynamic windowing methods** to deal with issues associated with the time-frequency tradeoff
 
 ---

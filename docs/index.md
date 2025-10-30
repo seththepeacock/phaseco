@@ -144,9 +144,9 @@ win_meth = {
 
 
 ## More examples
-Self-contained example scripts are available [here](https://github.com/seththepeacock/phaseco/blob/main/examples). [One](https://github.com/seththepeacock/phaseco/blob/main/examples/example_main.py) demonstrates most `phaseco` functions by analyzing a sinsusoid with brownian phase noise; [another](https://github.com/seththepeacock/phaseco/blob/main/examples/example_zeta_windowing.py) displays how `zeta` windowing pins the observed (power-weighted) autocoherence for white noise at $\approx \zeta$.
+Self-contained example scripts are available [here](https://github.com/seththepeacock/phaseco/blob/main/examples). One script [here](https://github.com/seththepeacock/phaseco/blob/main/examples/example_main.py) demonstrates most `phaseco` functions by analyzing a sinsusoid with brownian phase noise; another script [here](https://github.com/seththepeacock/phaseco/blob/main/examples/example_zeta_windowing.py) displays how `zeta` windowing pins the observed (power-weighted) autocoherence for white noise at $\approx \zeta$.
 
 ## More info
-For more details on each function, see the documented `funcs.py` file in the [source code](https://github.com/seththepeacock/phaseco/blob/main/phaseco/funcs.py).
+For more details on each function, see the documented source code for the [primary functions](https://github.com/seththepeacock/phaseco/blob/main/phaseco/funcs.py) `funcs.py` and for the [plotting functions](https://github.com/seththepeacock/phaseco/blob/main/phaseco/plots.py) `plots.py`.
 
 

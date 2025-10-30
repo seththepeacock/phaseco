@@ -41,7 +41,7 @@ fs = 44100
 ```
 The heart of the method is a short-time Fourier transform (STFT) to obtain magnitude and phase estimates as a function of time and frequency. Define $\tau$, the length of each segment in the STFT which (along with the window shape) sets the bandwidth of the effective filter in the filterbank interpretation of the STFT.
 ```python
-tau_s = 0.0745 # 74.5ms corresponds to an effective filter bandwidth of ~50Hz for a flattop window.
+tau_s = 0.0745 # 74.5ms corresponds to an effective filter half-power bandwidth of ~50Hz for a flattop window
 tau = int(round(tau_s*fs)) # Convert to samples. If this isn't a power of 2, the segments will be zero padded for FFT efficiency.
 ```
 Another STFT parameter is the hop length; smaller hops allow for more information to be extracted from a given signal length at the cost of longer computation time. The default is $\tau/2$ (50% overlap).

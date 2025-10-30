@@ -3,3 +3,6 @@ title: phaseco
 description: Tools for phase autocoherence analysis with dynamic windowing methods.
 show_downloads: true
 logo: assets/logo.png
+markdown: kramdown
+kramdown:
+  math_engine: mathjax

@@ -29,9 +29,10 @@ def plot_colossogram(
         xis_s = cgram["xis_s"]
         f = cgram["f"]
         colossogram = cgram["colossogram"]
-        pw = cgram["pw"]
+        mode = cgram["mode"]
     except:
-        KeyError("cgram must have keys 'xis_s', 'f', 'colossogram', and 'pw'!")
+        KeyError("cgram must have keys 'xis_s', 'f', 'colossogram', and 'mode'!")
+
 
     # make meshgrid
     xx, yy = np.meshgrid(
@@ -49,7 +50,13 @@ def plot_colossogram(
     )
 
     # get and set label for cbar
-    cbar_label = r"$C_\xi^P$" if pw else r"$C_\xi^\phi$"
+    match mode:
+        case 'P':
+            cbar_label = r"$C_\xi^P$"
+        case 'M':
+            cbar_label = r"$C_\xi^M$"
+        case 'phi':
+            cbar_label = r"$C_\xi^\phi$"
     cbar = plt.colorbar(heatmap)
     cbar.set_label(cbar_label, labelpad=30)
 
@@ -81,7 +88,7 @@ def plot_N_xi_fit(
         N_xi_dict (dict): The dictionary output of pc.get_N_xi()
         color (str, optional): The color of the plotted data
         xaxis_units (str, optional): "sec" or "#cycles"
-        plot_noise_floor (bool, optional): Plot the mean \pm std of all bins
+        plot_noise_floor (bool, optional): Plot the mean +/- std of all bins
         noise_bin (float, optional): Plot decay of bin (typically noise) for reference
         colossogram (array, optional): If noise_bin passed in, passed in colossogram array
         lw_fit (float, optional): Linewidth of the fitted exponential
@@ -275,7 +282,13 @@ def plot_N_xi_fit(
 
     # Finish plot
     plt.xlabel(xlabel)
-    ylabel = r"$C_\xi^P$" if N_xi_dict["pw"] else r"$C_\xi$"
+    match N_xi_dict['mode']:
+        case 'P':
+            ylabel = r"$C_\xi^P$"
+        case 'M':
+            ylabel = r"$C_\xi^M$"
+        case 'phi':
+            ylabel = r"$C_\xi^\phi$"
     plt.ylabel(ylabel)
     plt.ylim(0, 1)
     if zoom_to_fit:

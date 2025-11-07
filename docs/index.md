@@ -35,7 +35,7 @@ Import the package:
 ```python
 import phaseco as pc
 ```
-Define your waveform and its samplerate:
+Define your waveform and its sample rate $f_s$:
 ```python
 wf = []
 fs = 44100 

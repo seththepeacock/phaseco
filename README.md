@@ -25,8 +25,9 @@ pip install git+https://github.com/seththepeacock/phaseco.git
 It includes functions for:
 - Estimating **autocoherence**, a spectrum representing stability in phase evolution over a fixed reference time as a function of frequency
 - Building **colossograms** (from coherence-loss-o-gram) for visualization of the decay in autocoherence with increasing reference time
-- Extracting **time constants** representing this decay for a given frequency
+- Extracting **time constants** representing autocoherence decay for a fixed frequency
 - Implementing **dynamic windowing methods** to deal with issues associated with the time-frequency tradeoff
+
 ---
 
 ## Example use
@@ -34,7 +35,7 @@ Import the package:
 ```python
 import phaseco as pc
 ```
-Define your waveform and its samplerate:
+Define your waveform and its sample rate $f_s$:
 ```python
 wf = []
 fs = 44100 
@@ -144,9 +145,7 @@ win_meth = {
 
 
 ## More examples
-Self-contained example scripts are available [here](https://github.com/seththepeacock/phaseco/blob/main/examples). [One](https://github.com/seththepeacock/phaseco/blob/main/examples/example_main.py) demonstrates most `phaseco` functions by analyzing a sinsusoid with brownian phase noise; [another](https://github.com/seththepeacock/phaseco/blob/main/examples/example_zeta_windowing.py) displays how `zeta` windowing pins the observed (power-weighted) autocoherence for white noise at $\approx \zeta$.
+Self-contained example scripts are available [here](https://github.com/seththepeacock/phaseco/blob/main/examples). One script [here](https://github.com/seththepeacock/phaseco/blob/main/examples/example_main.py) demonstrates most `phaseco` functions by analyzing a sinsusoid with brownian phase noise; another script [here](https://github.com/seththepeacock/phaseco/blob/main/examples/example_zeta_windowing.py) displays how `zeta` windowing pins the observed (power-weighted) autocoherence for white noise at $\approx \zeta$.
 
 ## More info
-For more details on each function, see the documented `funcs.py` file in the [source code](https://github.com/seththepeacock/phaseco/blob/main/phaseco/funcs.py).
-
-
+For more details on each function, see the documented source code for the [primary functions](https://github.com/seththepeacock/phaseco/blob/main/phaseco/funcs.py) `funcs.py` and for the [plotting functions](https://github.com/seththepeacock/phaseco/blob/main/phaseco/plots.py) `plots.py`.

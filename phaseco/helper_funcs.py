@@ -70,10 +70,9 @@ def get_N_pds(
     return N_pd, N_pd_min, N_pd_max, global_xi_max
 
 
-def get_avg_abs_pd(pds, ref_type):
-    if ref_type == "time":
-        # Wrap the phases into the range [-pi, pi]
-        pds = (pds + np.pi) % (2 * np.pi) - np.pi
+def get_avg_abs_pd(pds):
+    # Wrap the phases into the range [-pi, pi]
+    pds = (pds + np.pi) % (2 * np.pi) - np.pi
     # get <|phase diffs|> (note we're taking mean w.r.t. PD axis 0, not frequency axis)
     return np.mean(np.abs(pds), 0)
 
@@ -82,14 +81,13 @@ def get_ac_from_stft(stft_0, stft_1, mode, wa=False, return_pd=False):
     # Define dictionary for averaged phase info (will pass through empty if return_pd==False)
     pd_dict = {}
 
-    # Get (X_xi)(X*)
-    xy = stft_1 * np.conj(stft_0)
-
     # Get average vector after different preprocessing steps
     match mode:
 
         # C_xi^phi
         case "phi":
+            # Get (X_xi)(X*)
+            xy = stft_1 * np.conj(stft_0)
             # Normalize xy segments
             xy_norm = xy / np.abs(xy)
             # Get average *unit* vector
@@ -99,15 +97,21 @@ def get_ac_from_stft(stft_0, stft_1, mode, wa=False, return_pd=False):
 
         # C_xi^M
         case "M":
-            # Sqrt xy for units of magnitude (before averaging for 'artifact rejection'-ish)
-            xy_sqrt = np.sqrt(xy)
-            # Get average vector
-            avg_vector = np.mean(xy_sqrt, axis=0)
-            # Take magnitude (e.g. throw away final phase info)
+            # Get each set of phases
+            p1 = np.angle(stft_1)
+            p0 = np.angle(stft_0)
+            # Assign complex vectors
+            xy = np.abs(stft_0)*np.exp(1j*p1-p0)
+            # Get avg vector
+            avg_vector = np.mean(xy, axis=0)
+            # Take magnitude for autocoherence
             autocoherence = np.abs(avg_vector)
+
 
         # C_xi^P
         case "P":
+            # Get (X_xi)(X*)
+            xy = stft_1 * np.conj(stft_0)
             # Get average vector (no pre-processing on xy)
             avg_vector = np.mean(xy, 0)
             # Optionally do a simple weighted average of the cross-spectral coefficients over segments
@@ -129,7 +133,7 @@ def get_ac_from_stft(stft_0, stft_1, mode, wa=False, return_pd=False):
         # Add to dict
         pd_dict["pds"] = pds
         pd_dict["avg_pd"] = avg_pd
-        pd_dict["avg_abs_pd"] = get_avg_abs_pd(pds, ref_type="time")
+        pd_dict["avg_abs_pd"] = get_avg_abs_pd(pds)
 
     return autocoherence, pd_dict  # Dictionary is possibly empty
 

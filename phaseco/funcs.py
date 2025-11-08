@@ -873,6 +873,7 @@ def get_welch(
     N_segs: Union[int, None] = None,
     win: Union[str, tuple, NDArray[floating], None] = None,
     scaling: str = "density",
+    avg_exp: float = 2,
     realfft: bool = True,
     return_dict: bool = False,
 ) -> Union[Tuple[NDArray[floating], NDArray[floating]], Dict[str, NDArray[floating]]]:
@@ -885,8 +886,9 @@ def get_welch(
         nfft (int, optional): FFT length. Zero-padding is applied if nfft > tau.
         hop (int, optional): Hop size between segments; if int, # samples, if 0 < hop < 1 then a proportion of tau
         N_segs (int, optional): Limits number of segments to extract.
-        win (array or str): Array of window coefficients or string for scipy.signal.get_window()
-        scaling (str): 'density' for PSD, 'spectrum' for PSD*bin_width, 'magnitude' for magnitude spectrum
+        win (array or str, optional): Array of window coefficients or string for scipy.signal.get_window()
+        scaling (str, optional): 'density' for PSD, 'spectrum' for PSD*bin_width, 'magnitude' for magnitude spectrum
+        avg_exp (float, optional): exponent to raise magnitudes to in average; defaults to 2 (Welch average)
         realfft: (bool, optional): Skips negative frequencies
         return_dict (bool, optional): If True, returns a dict with keys 'f', 'spectrum', 'segmented_spectrum', 'scaling', 'fs', 'tau', 'nfft', 'hop', 'N_segs', 'win'
 
@@ -913,39 +915,47 @@ def get_welch(
     # calculate necessary params from the stft
     N_segs, N_bins = np.shape(stft)
 
-    # initialize array
-    segmented_spectrum = np.zeros((N_segs, N_bins))
-
-    # get spectrum for each window
-    for seg in range(N_segs):
-        segmented_spectrum[seg, :] = (np.abs(stft[seg, :])) ** 2
+    # Get segmented spectrum
+    segmented_spectrum = np.abs(stft) ** avg_exp
 
     # average over all segments (in power)
     spectrum = np.mean(segmented_spectrum, 0)
 
-    S1 = np.sum(win)
-    S2 = np.sum(win**2)
-    if scaling == "magnitude":
-        spectrum = np.sqrt(spectrum)
-        scaling_factor = 1 / S1
+    # Handle scaling
+    match avg_exp:
+        # Handle standard welch averaging
+        case 2: 
+            S1 = np.sum(win)
+            S2 = np.sum(win**2)
+            match scaling:
+                case 'amplitude':
+                    spectrum = np.sqrt(spectrum) / S1
+                case 'density':
+                    spectrum /= (fs * S2)
+                case 'spectrum':
+                    # Note that this is the density scaling except multiplied by the bin width * ENBW (in # bins)
+                    spectrum /= S1**2
+                case _:
+                    raise Exception("Scaling must be 'density', 'amplitude', or 'spectrum'!")
+        # Handle "magnitude averaging"
+        case 1:
+            spectrum /= np.sum(win) # Not exactly physical, but closest option 
+            # (this gives same result as exp_avg=2 'amplitude' sacling if all segments have same magnitude)
+        
+        # Handle other cases (just don't scale at all since it's not physical)
+        case _:
+            print("Warning: the scaling does not correspond to a physical value!")
 
-    elif scaling == "spectrum":
-        # Note that this is the density scaling except multiplied by the bin width * ENBW (in # bins)
-        scaling_factor = 1 / S1**2
-
-    elif scaling == "density":
-        scaling_factor = 1 / (fs * S2)
-
-    else:
-        raise Exception("Scaling must be 'magnitude', 'density', or 'spectrum'!")
-
-    # Normalize; since this is an rfft, we should multiply by 2
-    spectrum = spectrum * 2 * scaling_factor
-    # Except DC bin should NOT be scaled by 2
-    spectrum[0] = spectrum[0] / 2
-    # Nyquist bin shouldn't either (note this bin only exists if tau is even)
-    if tau % 2 == 0:
-        spectrum[-1] = spectrum[-1] / 2
+    
+    
+    if realfft:
+        # Since this is an rfft, we should multiply by 2
+        spectrum = spectrum * 2 
+        # Except DC bin should NOT be scaled by 2
+        spectrum[0] = spectrum[0] / 2
+        # Nyquist bin shouldn't either (note this bin only exists if tau is even)
+        if tau % 2 == 0:
+            spectrum[-1] = spectrum[-1] / 2
 
     # Return dictionary or minimal output tuple (f, spectrum)
     if return_dict:

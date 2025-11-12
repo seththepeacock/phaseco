@@ -70,7 +70,10 @@ def get_N_pds(
     return N_pd, N_pd_min, N_pd_max, global_xi_max
 
 
-def get_avg_abs_pd(pds):
+def get_avg_abs_pd(pds, f, fs, xi, tau):
+    # Subtract expected phase diff (if xi=tau then this is just 0)
+    if xi!=tau:
+        pds -= 2*np.pi*f*xi/fs
     # Wrap the phases into the range [-pi, pi]
     pds = (pds + np.pi) % (2 * np.pi) - np.pi
     # get <|phase diffs|> (note we're taking mean w.r.t. PD axis 0, not frequency axis)
@@ -101,7 +104,7 @@ def get_ac_from_stft(stft_0, stft_1, mode, wa=False, return_pd=False):
             p1 = np.angle(stft_1)
             p0 = np.angle(stft_0)
             # Assign complex vectors
-            xy = np.abs(stft_0)*np.exp(1j*p1-p0)
+            xy = np.abs(stft_0)*np.exp(1j*(p1-p0))
             # Get avg vector
             avg_vector = np.mean(xy, axis=0)
             # Take magnitude for autocoherence
@@ -133,7 +136,6 @@ def get_ac_from_stft(stft_0, stft_1, mode, wa=False, return_pd=False):
         # Add to dict
         pd_dict["pds"] = pds
         pd_dict["avg_pd"] = avg_pd
-        pd_dict["avg_abs_pd"] = get_avg_abs_pd(pds)
 
     return autocoherence, pd_dict  # Dictionary is possibly empty
 

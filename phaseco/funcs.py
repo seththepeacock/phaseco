@@ -45,7 +45,7 @@ def get_stft(
         hop (int, optional): Hop size between segments; if int, # samples, if 0 < hop < 1 then a proportion of tau
         win (array or str): Array of window coefficients or string for scipy.signal.get_window()
         N_segs (int, optional): Limits number of segments to extract.
-        demod (bool, optional): Phase shifts all FT coefficients to share  phase reference (wf[0])
+        demod (bool, optional): Phase shifts all FT coefficients to share same phase reference (wf[0])
         realfft: (bool, optional): Skips negative frequencies
         f0s: (array, optional): Only returns these frequencies (rounded to standard DFT frequency grid)
         return_dict (bool, optional): If True, returns a dict with keys 't', 'f', 'stft', 'segmented_wf',
@@ -156,6 +156,7 @@ def get_stft(
 
     # # Compute FFT along the last axis (axis=1)
     stft_full = fft_func(segmented_wf, n=nfft, axis=1)  # zero pads if nfft > tau
+    
     if f0s is None:
         stft = stft_full
     else:
@@ -175,10 +176,9 @@ def get_stft(
     # ...for C_omega, it will shift all phases by the same amount and phase difference will be entirely unchanged
     # for C_xi/C_tau, it will shift the phase difference but not its consistency
     if demod:
-        print("Demodulating")
+        print("Demodulating (POSSIBLE BUG)")
         demod_factors = np.exp(-1j * 2 * np.pi * f[None, :] * t_starts[:, None])
         stft = stft * demod_factors
-
     if return_dict:
         return {
             "t": t_centers,
@@ -228,9 +228,9 @@ def get_autocoherence(
         ref_type (str, optional): Phase reference type ('time', 'freq', 'freqs').
         freq_bin_hop (int, optional): Number of frequency bins over to reference phase to for ref_type='freq'.
         f0s (array, optional): Only calculates for frequencies (rounded to standard DFT frequency grid).
-        return_pd (bool, optional): Adds phase diffs to output dict plus <|phase diffs|> and <phase diffs>
+        return_pd (bool, optional): Adds 'pds', 'avg_pd', and 'avg_abs_pd' (phase diffs, <|phase diffs|>, and <phase diffs>) to output dict
         return_dict (bool, optional): If True, returns dictionary with variables 'autocoherence', 'N_pd', 'f',
-            'stft', 'tau', 'nfft', 'hop', 'xi', 'fs', 'mode'
+            'tau', 'nfft', 'hop', 'xi', 'fs', 'mode' 
 
     Returns:
         tuple: (f, autocoherence) unless return_dict is True
@@ -260,8 +260,8 @@ def get_autocoherence(
     # Get window (and possibly redfine tau if doing zeta windowing)
     win, tau_updated = get_win(win_meth, tau, xi, ref_type)
 
-    # We only need to correct the phase reference if we're doing xi (time) referencing AND we're returning <|pds|>
-    demod = True if return_pd and ref_type == "time" else False
+    # This was just for <|phi|>, implemented faster way
+    demod = False
 
     # If f0s is passed in, make sure it can be implemented
     if f0s is not None and ref_type != "time":
@@ -346,6 +346,8 @@ def get_autocoherence(
             # Split up stft
             stft_0 = stft[:, 0:-freq_bin_hop]
             stft_omega = stft[:, freq_bin_hop:]
+            # stft_0 = stft[:, 0:-freq_bin_hop]
+            # stft_omega = stft[:, freq_bin_hop:]
 
             # Calculate the autocoherence (note pd_dict could be empty)
             autocoherence, pd_dict = get_ac_from_stft(
@@ -373,14 +375,15 @@ def get_autocoherence(
 
 
     else:  # Return full dictionary
-        if return_pd: # If pd_dict isn't empty, add it
+        if return_pd: # Calculate <|phi|> then add it all
+            pd_dict["avg_abs_pd"] = get_avg_abs_pd(pd_dict['pds'], f, fs, xi, tau)
             d.update(pd_dict)
+            
         d.update(
             {
                 "autocoherence": autocoherence,
                 "N_pd": N_pd,
                 "f": f,
-                "stft": stft,
                 "tau": tau_updated,
                 "nfft": nfft,
                 "hop": hop,
@@ -430,12 +433,11 @@ def get_win(
 
     # First, handle dynamic windows
     if method in ["rho", "zeta"]:
-        # Make sure our ref_type is appropriate
-        if ref_type != "time":
-            raise ValueError(
-                f"You passed in a dynamic windowing method ({method} windowing) but you're using a '{ref_type}' reference; this was designed for 'time'!"
-            )
-
+        # # Make sure our ref_type is appropriate
+        # if ref_type != "time":
+        #     raise ValueError(
+        #         f"You passed in a dynamic windowing method ({method} windowing) but you're using a '{ref_type}' reference; this was designed for 'time'!"
+        #     )
         if method == "rho":
             try:
                 rho = win_meth["rho"]
@@ -491,7 +493,7 @@ def get_colossogram(
     fs: int,
     xis: Union[NDArray[np.integer], dict],
     tau: int,
-    nfft: Union[int, None] = None,
+    nfft: Union[int, str, None] = None,
     hop: Union[int, float, None] = None,
     mode: str = "phi",
     win_meth: dict = {"method": "rho", "rho": 1.0, "win_type": "flattop"},
@@ -512,7 +514,7 @@ def get_colossogram(
         fs (int): Sample rate.
         xis (array or dict): Array of lags or dict with keys 'xi_min', 'xi_max', 'delta_xi'.
         tau (int): Window length in samples.
-        nfft (int, optional): FFT size in samples; implements zero padding if nfft > tau
+        nfft (int, optional): FFT size in samples; implements zero padding if nfft > tau (if 'round', rounds up to next power of 2 >= tau)
         hop (int or float, optional): Hop size in samples or proportion of tau (if < 1)
         mode (str, optional): 'phi' (default) for C_xi^phi (no weighting), 'P' for C_xi^P (power weights with 'normalization'), 'M' for C_xi^M (raw magnitude weights)
         win_meth (dict, optional): Windowing method; see get_win() for details
@@ -562,7 +564,7 @@ def get_colossogram(
         )
 
     # Deal with nfft
-    if nfft is None:
+    if nfft=='round':
         # Check if tau is a power of 2
         tau_power_of_2 = np.log2(tau)
         if np.abs(round(tau_power_of_2) - tau_power_of_2) > 1e-9:
@@ -573,6 +575,8 @@ def get_colossogram(
             )
         else:  # If tau is a power of 2, just use that
             nfft = tau
+    elif nfft is None:
+        nfft = tau # Otherwise, just use the passed in nfft
 
     # Get xis array (function is to handle possible passing in of dict with keys 'xi_min', 'xi_max', and 'delta_xi' or tuple in that order)
     xis = get_xis_array(xis, fs, hop)
@@ -918,7 +922,7 @@ def get_welch(
     # Get segmented spectrum
     segmented_spectrum = np.abs(stft) ** avg_exp
 
-    # average over all segments (in power)
+    # average over all segments
     spectrum = np.mean(segmented_spectrum, 0)
 
     # Handle scaling
@@ -940,7 +944,7 @@ def get_welch(
         # Handle "magnitude averaging"
         case 1:
             spectrum /= np.sum(win) # Not exactly physical, but closest option 
-            # (this gives same result as exp_avg=2 'amplitude' sacling if all segments have same magnitude)
+            # (this at least gives same result as exp_avg=2 'amplitude' scaling if all segments have same magnitude)
         
         # Handle other cases (just don't scale at all since it's not physical)
         case _:

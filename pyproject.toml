@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "phaseco"
-version = "0.1.1"
+version = "1.0.0"
 description = "Tools for phase autocoherence analysis with dynamic windowing methods"
 authors = [
-  { name="Seth Peacock", email="seththepeacock@gmail.com" }
+  { name="Seth N.S. Peacock", email="seththepeacock@gmail.com" }
 ]
 readme = "README.md"
 license = "MIT"

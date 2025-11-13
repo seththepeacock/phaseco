@@ -31,7 +31,7 @@ wf = wf + np.random.normal(0, additive_noise_strength, size=t.shape)
 
 "Get Welch-averaged power spectral density"
 # --- Parameters ---
-tau = 2**13  # Length of each segment to FFT; power of two for max FFT performance
+tau = 2**12  # Length of each segment to FFT; power of two for max FFT performance
 hop = (
     tau // 2
 )  # How much to hop between adjacent segments; tau // 2 = 50% overlap between segments
@@ -58,11 +58,6 @@ plt.legend()
 "Get phase autocoherence spectrum"
 # --- Parameters ---
 
-pw = True
-# pw (power weights) controls whether we weight each phase diff in the vector strength complex average by weights given by:
-# weight = (magnitude of segment at this freq) * (magnitude of the xi-advanced segment at this freq)
-# This is equivalent to the classical coherence signal processing measure between the signal and a xi-advanced shifted copy of the signal (e.g. Zhou and Dagle)
-
 # Define the phase reference distance xi
 xi_s = 0.01  # This one I like to define in seconds (that's the _s) and then convert to samples later
 
@@ -81,7 +76,7 @@ xi = round(xi_s * fs)
 
 # Calculate autocoherence of waveform
 f, acoh = pc.get_autocoherence(
-    wf, fs, xi, pw, tau, hop=hop, win_meth=win_meth, ref_type=ref_type
+    wf, fs, xi, tau, hop=hop, win_meth=win_meth, ref_type=ref_type
 )
 
 # Plot
@@ -109,7 +104,7 @@ xis = {
 
 # Calculate colossogram
 cgram_dict = pc.get_colossogram(
-    wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth
+    wf, fs, xis, tau, hop=hop, win_meth=win_meth
 ) # outputs a dictionary
 
 # Extract desired values from dictionary

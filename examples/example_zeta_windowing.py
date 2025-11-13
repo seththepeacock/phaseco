@@ -10,8 +10,8 @@ std = 10
 wf = np.random.normal(0, std, wf_len)
 
 "Get Colossogram"
-# Set power-weights switch (zeta-windowing can be used with pw=False as well, but makes more sense here)
-pw = True 
+# Set mode (zeta-windowing can be used with mode='phi' as well, but the original motivation is with 'P')
+mode = 'P'
 # Set values in seconds
 tau_s = 0.1 # 100ms
 hop_s = 0.1 # 100ms (0% overlap for quick computation but typically should do hop somewhere in [0.1*tau, 0.5*tau])
@@ -28,7 +28,7 @@ zeta = 0.2
 win_type = 'boxcar' # Used in scipy get_window()
 win_meth = {"method": "zeta", "zeta": zeta, "win_type":win_type}
 cgram_dict = pc.get_colossogram(
-    wf, fs, xis, pw, tau, hop=hop, win_meth=win_meth, return_dict=True
+    wf, fs, xis, tau, hop=hop, mode=mode, win_meth=win_meth, return_dict=True
 )
 
 # Extract desired values from dictionary

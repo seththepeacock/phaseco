@@ -858,6 +858,7 @@ def get_colossogram(
                 "win_meth": win_meth,
                 "global_xi_max": global_xi_max,
                 "method_id": method_id,
+                "mode": mode,
                 "pw": (
                     True if mode == "P" else False
                 ),  # Keep this in for backwards compatibility

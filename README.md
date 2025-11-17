@@ -16,6 +16,7 @@ pip install git+https://github.com/seththepeacock/phaseco.git
 ## Links
 - [GitHub Repository](https://github.com/seththepeacock/phaseco)
 - [PyPI](https://pypi.org/project/phaseco)
+- [Peacock et al., 2025](https://www.biorxiv.org/content/10.1101/2025.11.14.687084v1)
 
 
 ## Overview

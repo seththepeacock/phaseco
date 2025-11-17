@@ -16,6 +16,7 @@ pip install git+https://github.com/seththepeacock/phaseco.git
 ## Links
 - [GitHub Repository](https://github.com/seththepeacock/phaseco)
 - [PyPI](https://pypi.org/project/phaseco)
+- [Peacock et al., 2025](https://www.biorxiv.org/content/10.1101/2025.11.14.687084v1)
 
 
 ## Overview
@@ -149,5 +150,3 @@ Self-contained example scripts are available [here](https://github.com/seththepe
 
 ## More info
 For more details on each function, see the documented source code for the [primary functions](https://github.com/seththepeacock/phaseco/blob/main/phaseco/funcs.py) `funcs.py` and for the [plotting functions](https://github.com/seththepeacock/phaseco/blob/main/phaseco/plots.py) `plots.py`.
-
-
